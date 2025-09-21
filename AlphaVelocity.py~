@@ -1,0 +1,303 @@
+;; This buffer is for text that is not saved, and for Lisp evaluation.
+;; To create a file, visit it with C-x C-f and enter text in its buffer.
+
+import pandas as pd
+import numpy as np
+import yfinance as yf
+from datetime import datetime, timedelta
+import warnings
+warnings.filterwarnings('ignore')
+
+class AlphaVelocity:
+    """
+    AlphaVelocity Momentum Scoring Engine
+    
+    Generates systematic momentum scores for stocks using multiple factors:
+    - Price Momentum (40%)
+    - Technical Momentum (25%) 
+    - Fundamental Momentum (25%)
+    - Relative Momentum (10%)
+    """
+    
+    def __init__(self):
+        self.weights = {
+            'price_momentum': 0.40,
+            'technical_momentum': 0.25,
+            'fundamental_momentum': 0.25,
+            'relative_momentum': 0.10
+        }
+        
+    def get_stock_data(self, ticker, period='1y'):
+        """Fetch stock data from Yahoo Finance"""
+        try:
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period=period)
+            info = stock.info
+            return hist, info
+        except Exception as e:
+            print(f"Error fetching data for {ticker}: {e}")
+            return None, None
+    
+    def calculate_price_momentum(self, hist_data):
+        """Calculate price momentum component (40% of total score)"""
+        if len(hist_data) < 252:  # Need at least 1 year of data
+            return 0
+            
+        current_price = hist_data['Close'].iloc[-1]
+        
+        # Calculate returns over different periods
+        returns = {}
+        periods = {
+            '1m': 21,   # 1 month
+            '3m': 63,   # 3 months
+            '6m': 126,  # 6 months
+            '12m': 252  # 12 months
+        }
+        
+        for period, days in periods.items():
+            if len(hist_data) >= days:
+                past_price = hist_data['Close'].iloc[-days]
+                returns[period] = (current_price / past_price) - 1
+            else:
+                returns[period] = 0
+        
+        # Weight recent performance more heavily
+        weights = {'1m': 0.4, '3m': 0.3, '6m': 0.2, '12m': 0.1}
+        weighted_return = sum(returns[period] * weights[period] for period in returns)
+        
+        # Moving average signals
+        ma_20 = hist_data['Close'].rolling(20).mean().iloc[-1]
+        ma_50 = hist_data['Close'].rolling(50).mean().iloc[-1]
+        ma_200 = hist_data['Close'].rolling(200).mean().iloc[-1]
+        
+        ma_score = 0
+        if current_price > ma_20:
+            ma_score += 0.4
+        if current_price > ma_50:
+            ma_score += 0.3
+        if current_price > ma_200:
+            ma_score += 0.3
+            
+        # Combine weighted return and MA signals
+        momentum_score = (weighted_return * 100) + (ma_score * 100)
+        
+        return min(100, max(0, momentum_score))
+    
+    def calculate_technical_momentum(self, hist_data):
+        """Calculate technical momentum component (25% of total score)"""
+        if len(hist_data) < 50:
+            return 0
+            
+        # RSI Calculation
+        delta = hist_data['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        current_rsi = rsi.iloc[-1]
+        
+        # RSI scoring (50-70 is ideal momentum range)
+        if 50 <= current_rsi <= 70:
+            rsi_score = 100
+        elif 30 <= current_rsi < 50:
+            rsi_score = (current_rsi - 30) * 2.5  # Scale 30-50 to 0-50
+        elif 70 < current_rsi <= 85:
+            rsi_score = 100 - ((current_rsi - 70) * 2)  # Slight penalty for overbought
+        else:
+            rsi_score = 0
+            
+        # Volume confirmation
+        avg_volume = hist_data['Volume'].rolling(30).mean().iloc[-1]
+        current_volume = hist_data['Volume'].iloc[-1]
+        volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1
+        
+        # Volume score (higher volume on up days is good)
+        volume_score = min(100, volume_ratio * 50)
+        
+        # Rate of Change (10-day)
+        current_price = hist_data['Close'].iloc[-1]
+        price_10d_ago = hist_data['Close'].iloc[-10]
+        roc = ((current_price / price_10d_ago) - 1) * 100
+        roc_score = min(100, max(0, roc * 10 + 50))
+        
+        technical_score = (rsi_score * 0.4) + (volume_score * 0.3) + (roc_score * 0.3)
+        return min(100, max(0, technical_score))
+    
+    def calculate_fundamental_momentum(self, stock_info):
+        """Calculate fundamental momentum component (25% of total score)"""
+        # This is simplified - in practice you'd want real-time earnings data
+        try:
+            # Basic fundamental checks
+            forward_pe = stock_info.get('forwardPE', 0)
+            trailing_pe = stock_info.get('trailingPE', 0)
+            peg_ratio = stock_info.get('pegRatio', 0)
+            
+            # Revenue and earnings growth
+            revenue_growth = stock_info.get('revenueGrowth', 0)
+            earnings_growth = stock_info.get('earningsGrowth', 0)
+            
+            # Profitability metrics
+            roe = stock_info.get('returnOnEquity', 0)
+            profit_margin = stock_info.get('profitMargins', 0)
+            
+            # Scoring based on growth and profitability
+            growth_score = 0
+            if revenue_growth and revenue_growth > 0:
+                growth_score += min(50, revenue_growth * 100)
+            if earnings_growth and earnings_growth > 0:
+                growth_score += min(50, earnings_growth * 100)
+                
+            profitability_score = 0
+            if roe and roe > 0:
+                profitability_score += min(50, roe * 100)
+            if profit_margin and profit_margin > 0:
+                profitability_score += min(50, profit_margin * 100)
+                
+            # Valuation score (lower PEG is better)
+            valuation_score = 0
+            if peg_ratio and 0 < peg_ratio < 2:
+                valuation_score = 100 - (peg_ratio * 50)
+                
+            fundamental_score = (growth_score * 0.4) + (profitability_score * 0.4) + (valuation_score * 0.2)
+            return min(100, max(0, fundamental_score))
+            
+        except Exception as e:
+            print(f"Error calculating fundamental momentum: {e}")
+            return 50  # Default neutral score
+    
+    def calculate_relative_momentum(self, hist_data, benchmark_ticker='SPY'):
+        """Calculate relative momentum vs benchmark (10% of total score)"""
+        try:
+            # Get benchmark data
+            benchmark = yf.Ticker(benchmark_ticker)
+            bench_hist = benchmark.history(period='1y')
+            
+            if len(bench_hist) < 63:  # Need at least 3 months
+                return 50
+                
+            # Calculate 3-month and 6-month relative performance
+            stock_3m = (hist_data['Close'].iloc[-1] / hist_data['Close'].iloc[-63]) - 1
+            bench_3m = (bench_hist['Close'].iloc[-1] / bench_hist['Close'].iloc[-63]) - 1
+            relative_3m = stock_3m - bench_3m
+            
+            if len(hist_data) >= 126:
+                stock_6m = (hist_data['Close'].iloc[-1] / hist_data['Close'].iloc[-126]) - 1
+                bench_6m = (bench_hist['Close'].iloc[-1] / bench_hist['Close'].iloc[-126]) - 1
+                relative_6m = stock_6m - bench_6m
+            else:
+                relative_6m = relative_3m
+                
+            # Weight 3-month more heavily
+            relative_performance = (relative_3m * 0.7) + (relative_6m * 0.3)
+            
+            # Convert to 0-100 scale
+            relative_score = 50 + (relative_performance * 500)  # Scale relative performance
+            return min(100, max(0, relative_score))
+            
+        except Exception as e:
+            print(f"Error calculating relative momentum: {e}")
+            return 50
+    
+    def calculate_momentum_score(self, ticker, benchmark='SPY'):
+        """Calculate composite momentum score for a stock"""
+        print(f"Calculating AlphaVelocity score for {ticker}...")
+        
+        # Get stock data
+        hist_data, stock_info = self.get_stock_data(ticker)
+        if hist_data is None:
+            return None
+            
+        # Calculate component scores
+        price_momentum = self.calculate_price_momentum(hist_data)
+        technical_momentum = self.calculate_technical_momentum(hist_data)
+        fundamental_momentum = self.calculate_fundamental_momentum(stock_info)
+        relative_momentum = self.calculate_relative_momentum(hist_data, benchmark)
+        
+        # Calculate weighted composite score
+        composite_score = (
+            price_momentum * self.weights['price_momentum'] +
+            technical_momentum * self.weights['technical_momentum'] +
+            fundamental_momentum * self.weights['fundamental_momentum'] +
+            relative_momentum * self.weights['relative_momentum']
+        )
+        
+        return {
+            'ticker': ticker,
+            'composite_score': round(composite_score, 2),
+            'price_momentum': round(price_momentum, 2),
+            'technical_momentum': round(technical_momentum, 2),
+            'fundamental_momentum': round(fundamental_momentum, 2),
+            'relative_momentum': round(relative_momentum, 2),
+            'rating': self.get_rating(composite_score)
+        }
+    
+    def get_rating(self, score):
+        """Convert numeric score to rating"""
+        if score >= 80:
+            return "Very Strong"
+        elif score >= 60:
+            return "Strong"
+        elif score >= 40:
+            return "Neutral"
+        elif score >= 20:
+            return "Weak"
+        else:
+            return "Very Weak"
+    
+    def analyze_portfolio(self, tickers, benchmark='SPY'):
+        """Analyze multiple stocks and return ranked results"""
+        results = []
+        
+        for ticker in tickers:
+            score = self.calculate_momentum_score(ticker, benchmark)
+            if score:
+                results.append(score)
+                
+        # Sort by composite score (descending)
+        results.sort(key=lambda x: x['composite_score'], reverse=True)
+        
+        # Convert to DataFrame for easy viewing
+        df = pd.DataFrame(results)
+        return df
+    
+    def get_top_momentum_stocks(self, tickers, top_n=10):
+        """Get top N stocks by momentum score"""
+        df = self.analyze_portfolio(tickers)
+        return df.head(top_n)
+
+# Example usage
+if __name__ == "__main__":
+    # Initialize AlphaVelocity engine
+    av = AlphaVelocity()
+    
+    # AI Infrastructure stock universe
+    ai_stocks = [
+        'NVDA', 'AMD', 'AVGO', 'TSM', 'ASML', 
+        'VRT', 'MOD', 'CIEN', 'INFN', 'ATKR',
+        'MSFT', 'GOOGL', 'META', 'AMZN'
+    ]
+    
+    print("AlphaVelocity Momentum Analysis")
+    print("=" * 50)
+    
+    # Analyze single stock
+    single_result = av.calculate_momentum_score('NVDA')
+    if single_result:
+        print(f"\nSingle Stock Analysis - {single_result['ticker']}:")
+        print(f"Composite Score: {single_result['composite_score']}")
+        print(f"Rating: {single_result['rating']}")
+        print(f"Components:")
+        print(f"  Price Momentum: {single_result['price_momentum']}")
+        print(f"  Technical Momentum: {single_result['technical_momentum']}")
+        print(f"  Fundamental Momentum: {single_result['fundamental_momentum']}")
+        print(f"  Relative Momentum: {single_result['relative_momentum']}")
+    
+    # Analyze portfolio
+    print(f"\nPortfolio Analysis - Top AI Infrastructure Stocks:")
+    portfolio_results = av.analyze_portfolio(ai_stocks)
+    print(portfolio_results.to_string(index=False))
+    
+    # Get top momentum picks
+    print(f"\nTop 5 Momentum Stocks:")
+    top_stocks = av.get_top_momentum_stocks(ai_stocks, top_n=5)
+    print(top_stocks[['ticker', 'composite_score', 'rating']].to_string(index=False))

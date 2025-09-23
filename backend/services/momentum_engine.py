@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import warnings
+import time
 warnings.filterwarnings('ignore')
 
 from ..utils.data_providers import DataProvider
@@ -25,6 +26,10 @@ class MomentumEngine:
             'relative_momentum': 0.10
         }
         self.data_provider = data_provider or DataProvider()
+
+        # Simple memory cache for momentum scores (5-minute TTL)
+        self._cache = {}
+        self._cache_ttl = 300  # 5 minutes
 
     def get_stock_data(self, ticker: str, period: str = '1y'):
         """Fetch stock data via data provider"""
@@ -168,10 +173,19 @@ class MomentumEngine:
 
     def calculate_momentum_score(self, ticker: str) -> dict:
         """Calculate comprehensive momentum score for a ticker"""
+        # Check cache first
+        cache_key = f"momentum_{ticker}"
+        current_time = time.time()
+
+        if cache_key in self._cache:
+            cached_data, cache_time = self._cache[cache_key]
+            if current_time - cache_time < self._cache_ttl:
+                return cached_data
+
         hist_data, stock_info = self.get_stock_data(ticker)
 
         if hist_data is None or len(hist_data) < 50:
-            return {
+            result = {
                 'ticker': ticker,
                 'composite_score': 0,
                 'rating': 'Insufficient Data',
@@ -180,6 +194,9 @@ class MomentumEngine:
                 'fundamental_momentum': 0,
                 'relative_momentum': 0
             }
+            # Cache the insufficient data result too
+            self._cache[cache_key] = (result, current_time)
+            return result
 
         # Calculate individual components
         price_momentum = self.calculate_price_momentum(hist_data)
@@ -207,7 +224,7 @@ class MomentumEngine:
         else:
             rating = 'Sell'
 
-        return {
+        result = {
             'ticker': ticker,
             'composite_score': round(composite_score, 1),
             'rating': rating,
@@ -215,4 +232,24 @@ class MomentumEngine:
             'technical_momentum': round(technical_momentum, 1),
             'fundamental_momentum': round(fundamental_momentum, 1),
             'relative_momentum': round(relative_momentum, 1)
+        }
+
+        # Cache the result
+        self._cache[cache_key] = (result, current_time)
+
+        return result
+
+    def clear_cache(self):
+        """Clear the momentum score cache"""
+        self._cache.clear()
+
+    def get_cache_stats(self):
+        """Get cache statistics"""
+        current_time = time.time()
+        valid_entries = sum(1 for _, (_, cache_time) in self._cache.items()
+                          if current_time - cache_time < self._cache_ttl)
+        return {
+            'total_entries': len(self._cache),
+            'valid_entries': valid_entries,
+            'cache_ttl_seconds': self._cache_ttl
         }

@@ -179,3 +179,76 @@ class PortfolioService:
         # Sort by composite score and return top N
         scores.sort(key=lambda x: x['composite_score'], reverse=True)
         return scores[:limit]
+
+    def generate_watchlist(self, current_portfolio: Dict[str, int], min_score: float = 70.0) -> Dict:
+        """Generate a watchlist of potential portfolio additions"""
+        current_tickers = set(current_portfolio.keys())
+        watchlist_by_category = {}
+
+        # Get current portfolio allocation by category
+        current_allocation = self._calculate_current_allocation(current_portfolio)
+
+        for category_name, category_info in self.portfolio_categories.items():
+            category_tickers = set(category_info['tickers'])
+            available_tickers = category_tickers - current_tickers
+
+            if not available_tickers:
+                continue
+
+            # Score available tickers
+            scores = []
+            for ticker in available_tickers:
+                try:
+                    momentum_result = self.momentum_engine.calculate_momentum_score(ticker)
+                    if momentum_result['composite_score'] >= min_score:
+                        scores.append(momentum_result)
+                except Exception as e:
+                    continue
+
+            # Sort by score
+            scores.sort(key=lambda x: x['composite_score'], reverse=True)
+
+            # Calculate category metrics
+            target_allocation = category_info['target_allocation']
+            current_cat_allocation = current_allocation.get(category_name, 0)
+            allocation_gap = target_allocation - current_cat_allocation
+
+            watchlist_by_category[category_name] = {
+                'target_allocation': target_allocation,
+                'current_allocation': current_cat_allocation,
+                'allocation_gap': allocation_gap,
+                'priority': 'High' if allocation_gap > 0.02 else 'Medium' if allocation_gap > 0 else 'Low',
+                'benchmark': category_info['benchmark'],
+                'candidates': scores[:5],  # Top 5 candidates per category
+                'total_candidates': len(scores)
+            }
+
+        # Overall watchlist summary
+        total_candidates = sum(cat['total_candidates'] for cat in watchlist_by_category.values())
+        high_priority_categories = [name for name, data in watchlist_by_category.items() if data['priority'] == 'High']
+
+        return {
+            'summary': {
+                'total_candidates': total_candidates,
+                'high_priority_categories': high_priority_categories,
+                'min_score_threshold': min_score,
+                'current_positions': len(current_portfolio),
+                'recommended_additions': len(high_priority_categories) + 2  # Conservative growth
+            },
+            'categories': watchlist_by_category
+        }
+
+    def _calculate_current_allocation(self, portfolio: Dict[str, int]) -> Dict[str, float]:
+        """Calculate current allocation percentages by category"""
+        # This is a simplified version - in practice you'd use market values
+        total_positions = sum(portfolio.values())
+        category_allocation = {}
+
+        for category_name, category_info in self.portfolio_categories.items():
+            category_positions = sum(
+                shares for ticker, shares in portfolio.items()
+                if ticker in category_info['tickers']
+            )
+            category_allocation[category_name] = category_positions / total_positions if total_positions > 0 else 0
+
+        return category_allocation

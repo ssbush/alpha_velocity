@@ -32,7 +32,7 @@ portfolio_service = PortfolioService(momentum_engine)
 
 # Default model portfolio for demo
 DEFAULT_PORTFOLIO = {
-    "NVDA": 7, "AVGO": 4, "MSFT": 2, "META": 1, "NOW": 1,
+    "NVDA": 7, "AVGO": 4, "MSFT": 2, "META": 1, "NOW": 1, "AAPL": 4, "GOOGL": 4,
     "VRT": 7, "MOD": 10, "BE": 30, "UI": 3,
     "DLR": 6, "SRVR": 58, "IRM": 10,
     "EWJ": 14, "EWT": 17,
@@ -87,6 +87,41 @@ async def analyze_portfolio(portfolio_data: Optional[str] = None):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error analyzing portfolio: {str(e)}")
+
+@app.post("/portfolio/analyze")
+async def analyze_custom_portfolio(portfolio: Portfolio):
+    """Analyze custom portfolio holdings"""
+    try:
+        if not portfolio.holdings:
+            raise HTTPException(status_code=400, detail="Portfolio cannot be empty")
+
+        df, total_value, avg_score = portfolio_service.analyze_portfolio(portfolio.holdings)
+
+        # Convert DataFrame to list of holdings
+        holdings = []
+        for _, row in df.iterrows():
+            holdings.append(PortfolioHolding(
+                ticker=row['Ticker'],
+                shares=row['Shares'],
+                price=row['Price'],
+                market_value=row['Market_Value'],
+                portfolio_percent=row['Portfolio_%'],
+                momentum_score=row['Momentum_Score'],
+                rating=row['Rating'],
+                price_momentum=row['Price_Momentum'],
+                technical_momentum=row['Technical_Momentum']
+            ))
+
+        return PortfolioAnalysis(
+            holdings=holdings,
+            total_value=total_value,
+            average_momentum_score=avg_score,
+            number_of_positions=len(portfolio.holdings)
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error analyzing custom portfolio: {str(e)}")
 
 @app.get("/categories", response_model=List[CategoryInfo])
 async def get_categories():
@@ -143,6 +178,51 @@ async def get_category_tickers(category_name: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching tickers for {category_name}: {str(e)}")
+
+@app.get("/watchlist")
+async def get_watchlist(min_score: float = 70.0):
+    """Generate watchlist of potential portfolio additions"""
+    try:
+        # Use the default portfolio for analysis
+        watchlist = portfolio_service.generate_watchlist(DEFAULT_PORTFOLIO, min_score)
+        return watchlist
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating watchlist: {str(e)}")
+
+@app.post("/watchlist/custom")
+async def get_custom_watchlist(portfolio: Portfolio, min_score: float = 70.0):
+    """Generate watchlist for custom portfolio"""
+    try:
+        if not portfolio.holdings:
+            raise HTTPException(status_code=400, detail="Portfolio cannot be empty")
+
+        watchlist = portfolio_service.generate_watchlist(portfolio.holdings, min_score)
+        return watchlist
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating custom watchlist: {str(e)}")
+
+@app.get("/cache/status")
+async def get_cache_status():
+    """Get momentum cache statistics"""
+    try:
+        stats = momentum_engine.get_cache_stats()
+        return {
+            "cache_stats": stats,
+            "message": f"Cache contains {stats['valid_entries']} valid entries out of {stats['total_entries']} total"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting cache status: {str(e)}")
+
+@app.post("/cache/clear")
+async def clear_cache():
+    """Clear the momentum cache"""
+    try:
+        momentum_engine.clear_cache()
+        return {"message": "Cache cleared successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error clearing cache: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

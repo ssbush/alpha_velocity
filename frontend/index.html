@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AlphaVelocity - AI Momentum Scoring</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="container">
+                <div class="logo">
+                    <h1>⚡ AlphaVelocity</h1>
+                    <span>AI Momentum Scoring Engine</span>
+                </div>
+                <nav class="nav">
+                    <button class="nav-btn active" data-view="dashboard">Dashboard</button>
+                    <button class="nav-btn" data-view="portfolio">Portfolio</button>
+                    <button class="nav-btn" data-view="categories">Categories</button>
+                    <button class="nav-btn" data-view="watchlist">Watchlist</button>
+                    <button class="nav-btn" data-view="search">Search</button>
+                </nav>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main">
+            <div class="container">
+                <!-- Dashboard View -->
+                <div id="dashboard-view" class="view active">
+                    <div class="view-header">
+                        <h2>Portfolio Overview</h2>
+                        <div class="stats-grid">
+                            <div class="stat-card">
+                                <div class="stat-value" id="total-value">--</div>
+                                <div class="stat-label">Total Value</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="avg-score">--</div>
+                                <div class="stat-label">Avg Momentum</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-value" id="positions-count">--</div>
+                                <div class="stat-label">Positions</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="section">
+                        <h3>Top Momentum Stocks</h3>
+                        <div class="loading" id="top-momentum-loading">Loading...</div>
+                        <div class="momentum-grid" id="top-momentum-grid"></div>
+                    </div>
+                </div>
+
+                <!-- Portfolio View -->
+                <div id="portfolio-view" class="view">
+                    <div class="view-header">
+                        <h2>Portfolio Analysis</h2>
+                        <div class="portfolio-controls">
+                            <button class="toggle-btn" id="toggle-portfolio-mode">Use Custom Portfolio</button>
+                            <button class="refresh-btn" id="refresh-portfolio">Refresh</button>
+                        </div>
+                    </div>
+
+                    <!-- Portfolio Mode Selector -->
+                    <div class="portfolio-mode-selector">
+                        <div class="mode-tabs">
+                            <button class="mode-tab active" data-mode="default">Model Portfolio</button>
+                            <button class="mode-tab" data-mode="custom">Custom Portfolio</button>
+                        </div>
+                    </div>
+
+                    <!-- Custom Portfolio Input -->
+                    <div class="custom-portfolio-input" id="custom-portfolio-input" style="display: none;">
+                        <div class="input-section">
+                            <h3>Enter Your Holdings</h3>
+                            <div class="portfolio-builder">
+                                <div class="add-holding">
+                                    <input type="text" id="ticker-input-portfolio" placeholder="Ticker (e.g., AAPL)" maxlength="10">
+                                    <input type="number" id="shares-input" placeholder="Shares" min="1" step="1">
+                                    <button id="add-holding-btn">Add</button>
+                                </div>
+                                <div class="holdings-list" id="holdings-list"></div>
+                                <div class="portfolio-actions">
+                                    <button id="clear-portfolio">Clear All</button>
+                                    <button id="load-sample">Load Sample</button>
+                                    <button id="analyze-custom">Analyze Portfolio</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="loading" id="portfolio-loading">Loading portfolio...</div>
+                    <div class="portfolio-table" id="portfolio-table"></div>
+                </div>
+
+                <!-- Categories View -->
+                <div id="categories-view" class="view">
+                    <div class="view-header">
+                        <h2>Portfolio Categories</h2>
+                    </div>
+                    <div class="loading" id="categories-loading">Loading categories...</div>
+                    <div class="categories-grid" id="categories-grid"></div>
+                </div>
+
+                <!-- Watchlist View -->
+                <div id="watchlist-view" class="view">
+                    <div class="view-header">
+                        <h2>Portfolio Watchlist</h2>
+                        <div class="watchlist-controls">
+                            <label for="min-score-slider">Min Score: </label>
+                            <input type="range" id="min-score-slider" min="60" max="90" value="70" step="5">
+                            <span id="min-score-value">70</span>
+                            <button id="refresh-watchlist">Refresh</button>
+                        </div>
+                    </div>
+
+                    <div class="watchlist-summary" id="watchlist-summary">
+                        <div class="loading">Loading watchlist...</div>
+                    </div>
+
+                    <div class="watchlist-categories" id="watchlist-categories"></div>
+                </div>
+
+                <!-- Search View -->
+                <div id="search-view" class="view">
+                    <div class="view-header">
+                        <h2>Stock Analysis</h2>
+                        <div class="search-box">
+                            <input type="text" id="ticker-input" placeholder="Enter ticker symbol (e.g., NVDA)" maxlength="10">
+                            <button id="search-btn">Analyze</button>
+                        </div>
+                    </div>
+                    <div class="search-results" id="search-results"></div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Loading Overlay -->
+        <div class="loading-overlay" id="loading-overlay">
+            <div class="spinner"></div>
+            <div>Loading...</div>
+        </div>
+    </div>
+
+    <script src="js/api.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>

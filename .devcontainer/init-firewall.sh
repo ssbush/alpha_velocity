@@ -73,7 +73,9 @@ for domain in \
     "marketplace.visualstudio.com" \
     "vscode.blob.core.windows.net" \
     "update.code.visualstudio.com" \
-    "fc.yahoo.com"; do
+    "fc.yahoo.com" \
+    "pypi.org" \
+    "files.pythonhosted.org"; do
 
     echo "Raw dig output:"
     dig +noall +answer A "$domain"

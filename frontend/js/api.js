@@ -77,9 +77,61 @@ class AlphaVelocityAPI {
         });
     }
 
+    // ========================================
+    // DATABASE ENDPOINTS
+    // ========================================
+
+    // Get database status
+    async getDatabaseStatus() {
+        return this.request('/database/status');
+    }
+
+    // Get user portfolios from database
+    async getUserPortfolios(userId = 1) {
+        return this.request(`/database/portfolios?user_id=${userId}`);
+    }
+
+    // Get portfolio holdings from database
+    async getPortfolioHoldings(portfolioId) {
+        return this.request(`/database/portfolio/${portfolioId}/holdings`);
+    }
+
+    // Get portfolio category analysis from database
+    async getPortfolioCategoryAnalysis(portfolioId) {
+        return this.request(`/database/portfolio/${portfolioId}/categories`);
+    }
+
+    // Add transaction to portfolio
+    async addTransaction(portfolioId, transactionData) {
+        return this.request(`/database/portfolio/${portfolioId}/transaction`, {
+            method: 'POST',
+            body: JSON.stringify(transactionData)
+        });
+    }
+
+    // Get transaction history
+    async getTransactionHistory(portfolioId, limit = 50) {
+        return this.request(`/database/portfolio/${portfolioId}/transactions?limit=${limit}`);
+    }
+
+    // Run database migration
+    async runDatabaseMigration() {
+        return this.request('/database/migrate', {
+            method: 'POST'
+        });
+    }
+
     // Get watchlist for custom portfolio
     async getCustomWatchlist(portfolio, minScore = 70.0) {
         return this.request(`/watchlist/custom?min_score=${minScore}`, {
+            method: 'POST',
+            body: JSON.stringify({ holdings: portfolio })
+        });
+    }
+
+    // Compare portfolios
+    async comparePortfolios(portfolio) {
+        return this.request('/compare/portfolios', {
             method: 'POST',
             body: JSON.stringify({ holdings: portfolio })
         });

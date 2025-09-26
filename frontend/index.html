@@ -2,10 +2,22 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="AlphaVelocity">
+    <meta name="theme-color" content="#4c1d95">
     <title>AlphaVelocity - AI Momentum Scoring</title>
     <link rel="stylesheet" href="css/styles.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+    <link rel="manifest" href="manifest.json">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="application-name" content="AlphaVelocity">
+    <meta name="apple-mobile-web-app-title" content="AlphaVelocity">
+    <meta name="msapplication-starturl" content="/">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 </head>
 <body>
     <div class="app">
@@ -15,6 +27,10 @@
                 <div class="logo">
                     <h1>⚡ AlphaVelocity</h1>
                     <span>AI Momentum Scoring Engine</span>
+                    <div class="db-status" id="db-status">
+                        <span class="status-indicator" id="status-indicator">●</span>
+                        <span class="status-text" id="status-text">File Mode</span>
+                    </div>
                 </div>
                 <nav class="nav">
                     <button class="nav-btn active" data-view="dashboard">Dashboard</button>
@@ -22,6 +38,7 @@
                     <button class="nav-btn" data-view="categories">Categories</button>
                     <button class="nav-btn" data-view="watchlist">Watchlist</button>
                     <button class="nav-btn" data-view="search">Search</button>
+                    <button class="nav-btn" data-view="compare">Compare</button>
                 </nav>
             </div>
         </header>
@@ -53,6 +70,13 @@
                         <h3>Top Momentum Stocks</h3>
                         <div class="loading" id="top-momentum-loading">Loading...</div>
                         <div class="momentum-grid" id="top-momentum-grid"></div>
+                    </div>
+
+                    <div class="section">
+                        <h3>Portfolio Performance</h3>
+                        <div class="chart-container">
+                            <canvas id="trend-chart"></canvas>
+                        </div>
                     </div>
                 </div>
 
@@ -95,6 +119,40 @@
                     </div>
 
                     <div class="loading" id="portfolio-loading">Loading portfolio...</div>
+
+                    <!-- Portfolio Charts Section -->
+                    <div class="portfolio-charts" id="portfolio-charts" style="display: none;">
+                        <div class="charts-grid">
+                            <div class="chart-section">
+                                <h3>Portfolio Allocation</h3>
+                                <div class="chart-container">
+                                    <canvas id="allocation-chart"></canvas>
+                                </div>
+                            </div>
+                            <div class="chart-section">
+                                <h3>Top Holdings by Momentum</h3>
+                                <div class="chart-container">
+                                    <canvas id="momentum-chart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Performance Analytics Section -->
+                    <div class="performance-analytics" id="performance-analytics" style="display: none;">
+                        <div class="analytics-header">
+                            <h3>Performance Analytics</h3>
+                            <div class="analytics-period">
+                                <select id="analytics-period">
+                                    <option value="7">7 Days</option>
+                                    <option value="30" selected>30 Days</option>
+                                    <option value="90">90 Days</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="analytics-grid" id="analytics-grid"></div>
+                    </div>
+
                     <div class="portfolio-table" id="portfolio-table"></div>
                 </div>
 
@@ -137,6 +195,48 @@
                     </div>
                     <div class="search-results" id="search-results"></div>
                 </div>
+
+                <!-- Compare View -->
+                <div id="compare-view" class="view">
+                    <div class="view-header">
+                        <h2>Portfolio Comparison</h2>
+                        <div class="compare-controls">
+                            <button id="compare-with-model" class="compare-btn">Compare with Model Portfolio</button>
+                        </div>
+                    </div>
+
+                    <div class="comparison-setup" id="comparison-setup">
+                        <div class="setup-section">
+                            <h3>Select Your Portfolio to Compare</h3>
+                            <div class="portfolio-selector">
+                                <div class="selector-option">
+                                    <input type="radio" id="compare-custom" name="compare-portfolio" value="custom" checked>
+                                    <label for="compare-custom">Use Custom Portfolio</label>
+                                </div>
+                                <div class="selector-option">
+                                    <input type="radio" id="compare-sample" name="compare-portfolio" value="sample">
+                                    <label for="compare-sample">Use Sample Portfolio</label>
+                                </div>
+                            </div>
+
+                            <div class="custom-portfolio-for-compare" id="custom-portfolio-for-compare">
+                                <div class="compare-portfolio-builder">
+                                    <div class="add-compare-holding">
+                                        <input type="text" id="compare-ticker-input" placeholder="Ticker (e.g., AAPL)" maxlength="10">
+                                        <input type="number" id="compare-shares-input" placeholder="Shares" min="1" step="1">
+                                        <button id="add-compare-holding">Add</button>
+                                    </div>
+                                    <div class="compare-holdings-list" id="compare-holdings-list"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="comparison-results" id="comparison-results" style="display: none;">
+                        <div class="comparison-loading" id="comparison-loading">Analyzing portfolios...</div>
+                        <div class="comparison-content" id="comparison-content"></div>
+                    </div>
+                </div>
             </div>
         </main>
 
@@ -147,7 +247,9 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="js/api.js"></script>
+    <script src="js/charts.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>

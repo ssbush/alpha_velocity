@@ -3,14 +3,86 @@ class AlphaVelocityApp {
     constructor() {
         this.currentView = 'dashboard';
         this.portfolioMode = 'default'; // 'default' or 'custom'
+        this.databaseMode = false; // Enable database-backed portfolio management
+        this.currentPortfolioId = 1; // Default portfolio ID for database mode
         this.customPortfolio = {};
         this.init();
     }
 
     init() {
         this.setupEventListeners();
+        this.setupMobileOptimizations();
         this.loadFromLocalStorage();
         this.loadInitialData();
+        this.setupPWA();
+    }
+
+    setupMobileOptimizations() {
+        // Prevent zoom on input focus for iOS
+        this.preventIOSZoom();
+
+        // Add touch-friendly interactions
+        this.setupTouchInteractions();
+
+        // Handle orientation changes
+        window.addEventListener('orientationchange', () => {
+            setTimeout(() => {
+                this.handleOrientationChange();
+            }, 100);
+        });
+
+        // Optimize scroll performance on mobile
+        this.optimizeScrolling();
+    }
+
+    preventIOSZoom() {
+        // Ensure all inputs have font-size 16px to prevent zoom
+        const inputs = document.querySelectorAll('input[type="text"], input[type="number"]');
+        inputs.forEach(input => {
+            if (window.innerWidth <= 768) {
+                input.style.fontSize = '16px';
+            }
+        });
+    }
+
+    setupTouchInteractions() {
+        // Add haptic feedback simulation for touch devices
+        if ('ontouchstart' in window) {
+            document.querySelectorAll('button, .nav-btn').forEach(element => {
+                element.addEventListener('touchstart', function() {
+                    this.style.transform = 'scale(0.98)';
+                }, { passive: true });
+
+                element.addEventListener('touchend', function() {
+                    this.style.transform = 'scale(1)';
+                }, { passive: true });
+            });
+        }
+    }
+
+    handleOrientationChange() {
+        // Refresh layout after orientation change
+        const currentView = document.querySelector('.view.active');
+        if (currentView) {
+            // Force a reflow to handle any layout issues
+            currentView.style.display = 'none';
+            currentView.offsetHeight; // Trigger reflow
+            currentView.style.display = 'block';
+        }
+    }
+
+    optimizeScrolling() {
+        // Add smooth scrolling for mobile
+        document.documentElement.style.scrollBehavior = 'smooth';
+
+        // Optimize table scrolling on mobile
+        const tables = document.querySelectorAll('.data-table, .category-table');
+        tables.forEach(table => {
+            const container = table.parentElement;
+            if (container && window.innerWidth <= 768) {
+                container.style.webkitOverflowScrolling = 'touch';
+            }
+        });
     }
 
     setupEventListeners() {
@@ -85,6 +157,9 @@ class AlphaVelocityApp {
         document.getElementById('analyze-custom').addEventListener('click', () => {
             this.analyzeCustomPortfolio();
         });
+
+        // Portfolio comparison controls
+        this.setupComparisonControls();
     }
 
     switchView(viewName) {
@@ -113,6 +188,9 @@ class AlphaVelocityApp {
             case 'watchlist':
                 this.loadWatchlistData();
                 break;
+            case 'compare':
+                this.setupComparisonView();
+                break;
         }
     }
 
@@ -121,26 +199,88 @@ class AlphaVelocityApp {
             // Check API health
             await api.getHealth();
 
+            // Check database availability
+            await this.checkDatabaseMode();
+
             // Load dashboard data
             await Promise.all([
                 this.loadPortfolioSummary(),
-                this.loadTopMomentum()
+                this.loadTopMomentum(),
+                this.loadTrendChart()
             ]);
         } catch (error) {
             this.showError('Failed to connect to API. Please ensure the backend server is running.');
         }
     }
 
+    async checkDatabaseMode() {
+        try {
+            const dbStatus = await api.getDatabaseStatus();
+            this.databaseMode = dbStatus.available && dbStatus.connected;
+
+            if (this.databaseMode) {
+                console.log('✅ Database mode enabled - using PostgreSQL backend');
+                this.showDatabaseStatus(true);
+            } else {
+                console.log('📄 Using file-based portfolio management');
+                this.showDatabaseStatus(false);
+            }
+        } catch (error) {
+            console.log('📄 Database not available, using file-based mode');
+            this.databaseMode = false;
+            this.showDatabaseStatus(false);
+        }
+    }
+
+    showDatabaseStatus(enabled) {
+        // Update status indicator in the header
+        const statusIndicator = document.getElementById('status-indicator');
+        const statusText = document.getElementById('status-text');
+
+        if (statusIndicator && statusText) {
+            if (enabled) {
+                statusIndicator.classList.add('connected');
+                statusText.textContent = 'Database Mode';
+            } else {
+                statusIndicator.classList.remove('connected');
+                statusText.textContent = 'File Mode';
+            }
+        }
+    }
+
     async loadPortfolioSummary() {
         try {
-            const portfolio = await api.getPortfolioAnalysis();
+            let portfolio;
 
-            document.getElementById('total-value').textContent = formatCurrency(portfolio.total_value);
-            document.getElementById('avg-score').textContent = formatScore(portfolio.average_momentum_score);
-            document.getElementById('positions-count').textContent = portfolio.number_of_positions;
+            if (this.databaseMode) {
+                // Use database-backed portfolio data
+                const holdings = await api.getPortfolioHoldings(this.currentPortfolioId);
+
+                // Calculate summary from database holdings
+                portfolio = this.calculatePortfolioSummary(holdings.holdings);
+
+                console.log('📊 Loaded portfolio from database:', holdings.holdings.length, 'holdings');
+            } else {
+                // Use file-based portfolio analysis
+                portfolio = await api.getPortfolioAnalysis();
+                console.log('📊 Loaded portfolio from files');
+            }
+
+            document.getElementById('total-value').textContent = formatCurrency(portfolio.total_value || 0);
+            document.getElementById('avg-score').textContent = formatScore(portfolio.average_momentum_score || 0);
+            document.getElementById('positions-count').textContent = portfolio.number_of_positions || 0;
         } catch (error) {
             console.error('Failed to load portfolio summary:', error);
         }
+    }
+
+    calculatePortfolioSummary(holdings) {
+        // Simple calculation - in real app you'd get current prices and calculate total value
+        return {
+            total_value: holdings.length * 1000, // Placeholder
+            average_momentum_score: 75, // Placeholder
+            number_of_positions: holdings.length
+        };
     }
 
     async loadTopMomentum() {
@@ -177,6 +317,15 @@ class AlphaVelocityApp {
         } catch (error) {
             loading.textContent = 'Failed to load momentum data';
             console.error('Failed to load top momentum:', error);
+        }
+    }
+
+    async loadTrendChart() {
+        try {
+            // Create trend chart with sample data
+            chartManager.createTrendChart('trend-chart');
+        } catch (error) {
+            console.error('Failed to load trend chart:', error);
         }
     }
 
@@ -335,6 +484,23 @@ class AlphaVelocityApp {
             }
 
             container.innerHTML = portfolioHTML;
+
+            // Show and render charts
+            const chartsSection = document.getElementById('portfolio-charts');
+            chartsSection.style.display = 'block';
+
+            // Create allocation chart
+            chartManager.createAllocationChart('allocation-chart', portfolio);
+
+            // Create momentum chart
+            chartManager.createMomentumChart('momentum-chart', portfolio.holdings);
+
+            // Load and display performance analytics
+            this.loadPerformanceAnalytics('default');
+
+            // Cache portfolio data for offline use
+            this.cachePortfolioData(portfolio);
+
             loading.style.display = 'none';
         } catch (error) {
             loading.textContent = 'Failed to load portfolio data';
@@ -768,6 +934,16 @@ class AlphaVelocityApp {
         `;
 
         container.innerHTML = portfolioHTML;
+
+        // Show and render charts for custom portfolio
+        const chartsSection = document.getElementById('portfolio-charts');
+        chartsSection.style.display = 'block';
+
+        // Create allocation chart
+        chartManager.createAllocationChart('allocation-chart', analysis);
+
+        // Create momentum chart
+        chartManager.createMomentumChart('momentum-chart', analysis.holdings);
     }
 
     saveToLocalStorage() {
@@ -789,6 +965,721 @@ class AlphaVelocityApp {
     showError(message) {
         // Simple error display - could be enhanced with a proper notification system
         alert(message);
+    }
+
+    setupPWA() {
+        // Register service worker
+        this.registerServiceWorker();
+
+        // Setup PWA installation
+        this.setupPWAInstallation();
+
+        // Setup offline detection
+        this.setupOfflineDetection();
+
+        // Setup background sync
+        this.setupBackgroundSync();
+    }
+
+    async registerServiceWorker() {
+        if ('serviceWorker' in navigator) {
+            try {
+                const registration = await navigator.serviceWorker.register('/sw.js');
+                console.log('[PWA] Service Worker registered:', registration);
+
+                // Listen for updates
+                registration.addEventListener('updatefound', () => {
+                    const newWorker = registration.installing;
+                    newWorker.addEventListener('statechange', () => {
+                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                            // New content available, prompt user to refresh
+                            this.showUpdateAvailable();
+                        }
+                    });
+                });
+            } catch (error) {
+                console.error('[PWA] Service Worker registration failed:', error);
+            }
+        }
+    }
+
+    setupPWAInstallation() {
+        let deferredPrompt;
+
+        // Listen for beforeinstallprompt event
+        window.addEventListener('beforeinstallprompt', (e) => {
+            console.log('[PWA] beforeinstallprompt event fired');
+            e.preventDefault();
+            deferredPrompt = e;
+            this.showInstallPrompt(deferredPrompt);
+        });
+
+        // Listen for app installed event
+        window.addEventListener('appinstalled', () => {
+            console.log('[PWA] App was installed');
+            this.hideInstallPrompt();
+            this.showToast('AlphaVelocity installed successfully!');
+        });
+    }
+
+    showInstallPrompt(deferredPrompt) {
+        // Create install button if it doesn't exist
+        if (!document.getElementById('pwa-install-banner')) {
+            const banner = document.createElement('div');
+            banner.id = 'pwa-install-banner';
+            banner.className = 'pwa-install-banner';
+            banner.innerHTML = `
+                <div class="install-content">
+                    <div class="install-icon">⚡</div>
+                    <div class="install-text">
+                        <strong>Install AlphaVelocity</strong>
+                        <span>Get the full app experience with offline access</span>
+                    </div>
+                    <button id="install-button" class="install-button">Install</button>
+                    <button id="dismiss-install" class="dismiss-button">×</button>
+                </div>
+            `;
+
+            document.body.appendChild(banner);
+
+            // Handle install button click
+            document.getElementById('install-button').addEventListener('click', async () => {
+                if (deferredPrompt) {
+                    deferredPrompt.prompt();
+                    const { outcome } = await deferredPrompt.userChoice;
+                    console.log('[PWA] User response to install prompt:', outcome);
+                    deferredPrompt = null;
+                    this.hideInstallPrompt();
+                }
+            });
+
+            // Handle dismiss button
+            document.getElementById('dismiss-install').addEventListener('click', () => {
+                this.hideInstallPrompt();
+            });
+
+            // Auto-hide after 10 seconds
+            setTimeout(() => {
+                this.hideInstallPrompt();
+            }, 10000);
+        }
+    }
+
+    hideInstallPrompt() {
+        const banner = document.getElementById('pwa-install-banner');
+        if (banner) {
+            banner.remove();
+        }
+    }
+
+    setupOfflineDetection() {
+        // Update UI based on online/offline status
+        const updateOnlineStatus = () => {
+            if (navigator.onLine) {
+                document.body.classList.remove('offline');
+                this.hideOfflineBanner();
+            } else {
+                document.body.classList.add('offline');
+                this.showOfflineBanner();
+            }
+        };
+
+        window.addEventListener('online', updateOnlineStatus);
+        window.addEventListener('offline', updateOnlineStatus);
+
+        // Initial check
+        updateOnlineStatus();
+    }
+
+    showOfflineBanner() {
+        if (!document.getElementById('offline-banner')) {
+            const banner = document.createElement('div');
+            banner.id = 'offline-banner';
+            banner.className = 'offline-banner';
+            banner.innerHTML = `
+                <div class="offline-content">
+                    <span class="offline-icon">🔌</span>
+                    <span class="offline-text">You're offline. Some features may be limited.</span>
+                    <button id="dismiss-offline" class="dismiss-button">×</button>
+                </div>
+            `;
+
+            document.body.appendChild(banner);
+
+            document.getElementById('dismiss-offline').addEventListener('click', () => {
+                this.hideOfflineBanner();
+            });
+        }
+    }
+
+    hideOfflineBanner() {
+        const banner = document.getElementById('offline-banner');
+        if (banner) {
+            banner.remove();
+        }
+    }
+
+    setupBackgroundSync() {
+        // Register for background sync when online
+        if ('serviceWorker' in navigator && 'sync' in window.ServiceWorkerRegistration.prototype) {
+            navigator.serviceWorker.ready.then(registration => {
+                console.log('[PWA] Background sync available');
+                this.syncRegistration = registration;
+            });
+        }
+    }
+
+    // Cache portfolio data for offline use
+    cachePortfolioData(portfolioData) {
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({
+                type: 'CACHE_PORTFOLIO',
+                payload: portfolioData
+            });
+        }
+    }
+
+    showUpdateAvailable() {
+        const banner = document.createElement('div');
+        banner.className = 'update-banner';
+        banner.innerHTML = `
+            <div class="update-content">
+                <span class="update-icon">🔄</span>
+                <span class="update-text">New version available!</span>
+                <button id="update-button" class="update-button">Update</button>
+                <button id="dismiss-update" class="dismiss-button">×</button>
+            </div>
+        `;
+
+        document.body.appendChild(banner);
+
+        document.getElementById('update-button').addEventListener('click', () => {
+            window.location.reload();
+        });
+
+        document.getElementById('dismiss-update').addEventListener('click', () => {
+            banner.remove();
+        });
+    }
+
+    showToast(message, duration = 3000) {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.textContent = message;
+        document.body.appendChild(toast);
+
+        setTimeout(() => {
+            toast.classList.add('show');
+        }, 100);
+
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, duration);
+    }
+
+    async loadPerformanceAnalytics(portfolioId = 'default', days = 30) {
+        try {
+            const response = await fetch(`http://localhost:8000/historical/performance/${portfolioId}?days=${days}`);
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch performance analytics');
+            }
+
+            const analytics = await response.json();
+            this.displayPerformanceAnalytics(analytics);
+
+        } catch (error) {
+            console.error('Failed to load performance analytics:', error);
+            // Show analytics section but with a message about insufficient data
+            this.displayPerformanceAnalytics(null);
+        }
+    }
+
+    displayPerformanceAnalytics(analytics) {
+        const analyticsSection = document.getElementById('performance-analytics');
+        const analyticsGrid = document.getElementById('analytics-grid');
+
+        if (!analytics || analytics.data_points < 2) {
+            analyticsGrid.innerHTML = `
+                <div class="analytics-card" style="grid-column: 1 / -1; text-align: center;">
+                    <div class="analytics-label">Performance Data</div>
+                    <div class="analytics-value" style="color: #6b7280;">Insufficient Data</div>
+                    <div style="color: #6b7280; font-size: 0.875rem; margin-top: 0.5rem;">
+                        Analytics will appear after multiple portfolio snapshots are collected over time.
+                    </div>
+                </div>
+            `;
+            analyticsSection.style.display = 'block';
+            return;
+        }
+
+        // Create analytics cards
+        const analyticsHTML = `
+            <div class="analytics-card">
+                <div class="analytics-label">Total Return</div>
+                <div class="analytics-value ${analytics.total_return >= 0 ? 'positive' : 'negative'}">
+                    ${analytics.total_return >= 0 ? '+' : ''}${analytics.total_return}%
+                </div>
+            </div>
+            <div class="analytics-card">
+                <div class="analytics-label">Daily Return</div>
+                <div class="analytics-value ${analytics.daily_return >= 0 ? 'positive' : 'negative'}">
+                    ${analytics.daily_return >= 0 ? '+' : ''}${analytics.daily_return}%
+                </div>
+            </div>
+            <div class="analytics-card">
+                <div class="analytics-label">Volatility</div>
+                <div class="analytics-value">${analytics.volatility}%</div>
+            </div>
+            <div class="analytics-card">
+                <div class="analytics-label">Sharpe Ratio</div>
+                <div class="analytics-value ${analytics.sharpe_ratio >= 0 ? 'positive' : 'negative'}">
+                    ${analytics.sharpe_ratio}
+                </div>
+            </div>
+            <div class="analytics-card">
+                <div class="analytics-label">Max Drawdown</div>
+                <div class="analytics-value negative">${analytics.max_drawdown}%</div>
+            </div>
+            <div class="analytics-card">
+                <div class="analytics-label">Momentum Trend</div>
+                <div class="analytics-value">${analytics.period_days} Days</div>
+                <div class="analytics-trend ${analytics.momentum_trend}">
+                    ${analytics.momentum_trend}
+                </div>
+            </div>
+        `;
+
+        analyticsGrid.innerHTML = analyticsHTML;
+        analyticsSection.style.display = 'block';
+
+        // Setup period selector
+        const periodSelector = document.getElementById('analytics-period');
+        periodSelector.addEventListener('change', (e) => {
+            const days = parseInt(e.target.value);
+            this.loadPerformanceAnalytics('default', days);
+        });
+    }
+
+    setupComparisonControls() {
+        // Compare button
+        const compareBtn = document.getElementById('compare-with-model');
+        if (compareBtn) {
+            compareBtn.addEventListener('click', () => {
+                this.performComparison();
+            });
+        }
+
+        // Portfolio type selection
+        const portfolioSelectors = document.querySelectorAll('input[name="compare-portfolio"]');
+        portfolioSelectors.forEach(selector => {
+            selector.addEventListener('change', (e) => {
+                this.handlePortfolioSelectionChange(e.target.value);
+            });
+        });
+
+        // Custom portfolio builder for comparison
+        const addCompareHolding = document.getElementById('add-compare-holding');
+        if (addCompareHolding) {
+            addCompareHolding.addEventListener('click', () => {
+                this.addComparisonHolding();
+            });
+        }
+
+        const compareTickerInput = document.getElementById('compare-ticker-input');
+        const compareSharesInput = document.getElementById('compare-shares-input');
+        if (compareTickerInput && compareSharesInput) {
+            compareTickerInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') this.addComparisonHolding();
+            });
+
+            compareSharesInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') this.addComparisonHolding();
+            });
+        }
+    }
+
+    setupComparisonView() {
+        // Initialize comparison view when switching to it
+        const setupSection = document.getElementById('comparison-setup');
+        const resultsSection = document.getElementById('comparison-results');
+
+        // Show setup, hide results
+        setupSection.style.display = 'block';
+        resultsSection.style.display = 'none';
+
+        // Reset portfolio selection
+        const customRadio = document.getElementById('compare-custom');
+        if (customRadio) {
+            customRadio.checked = true;
+            this.handlePortfolioSelectionChange('custom');
+        }
+
+        // Initialize comparison portfolio if using custom from main portfolio
+        if (Object.keys(this.customPortfolio).length > 0) {
+            this.comparisonPortfolio = { ...this.customPortfolio };
+            this.renderComparisonPortfolio();
+        } else {
+            this.comparisonPortfolio = {};
+        }
+    }
+
+    handlePortfolioSelectionChange(value) {
+        const customSection = document.getElementById('custom-portfolio-for-compare');
+
+        if (value === 'custom') {
+            customSection.style.display = 'block';
+            // Initialize with main custom portfolio if available
+            if (!this.comparisonPortfolio || Object.keys(this.comparisonPortfolio).length === 0) {
+                this.comparisonPortfolio = { ...this.customPortfolio };
+                this.renderComparisonPortfolio();
+            }
+        } else {
+            customSection.style.display = 'none';
+            // Use sample portfolio
+            this.comparisonPortfolio = {
+                'AAPL': 100,
+                'MSFT': 50,
+                'GOOGL': 25,
+                'NVDA': 30,
+                'TSLA': 20
+            };
+        }
+    }
+
+    addComparisonHolding() {
+        const tickerInput = document.getElementById('compare-ticker-input');
+        const sharesInput = document.getElementById('compare-shares-input');
+
+        const ticker = tickerInput.value.trim().toUpperCase();
+        const shares = parseInt(sharesInput.value);
+
+        if (!ticker) {
+            this.showError('Please enter a ticker symbol');
+            return;
+        }
+
+        if (!shares || shares <= 0) {
+            this.showError('Please enter a valid number of shares');
+            return;
+        }
+
+        // Initialize comparison portfolio if not exists
+        if (!this.comparisonPortfolio) {
+            this.comparisonPortfolio = {};
+        }
+
+        // Add to comparison portfolio
+        this.comparisonPortfolio[ticker] = shares;
+
+        // Clear inputs
+        tickerInput.value = '';
+        sharesInput.value = '';
+
+        // Update display
+        this.renderComparisonPortfolio();
+    }
+
+    removeComparisonHolding(ticker) {
+        if (this.comparisonPortfolio) {
+            delete this.comparisonPortfolio[ticker];
+            this.renderComparisonPortfolio();
+        }
+    }
+
+    renderComparisonPortfolio() {
+        const container = document.getElementById('compare-holdings-list');
+
+        if (!container) return;
+
+        if (!this.comparisonPortfolio || Object.keys(this.comparisonPortfolio).length === 0) {
+            container.innerHTML = '<div class="empty-portfolio">No holdings added yet. Enter a ticker and shares above.</div>';
+            return;
+        }
+
+        const holdingsHTML = Object.entries(this.comparisonPortfolio).map(([ticker, shares]) => `
+            <div class="holding-item">
+                <span class="holding-ticker">${ticker}</span>
+                <span class="holding-shares">${shares} shares</span>
+                <button class="remove-holding" onclick="app.removeComparisonHolding('${ticker}')">×</button>
+            </div>
+        `).join('');
+
+        container.innerHTML = holdingsHTML;
+    }
+
+    async performComparison() {
+        const selectedPortfolioType = document.querySelector('input[name="compare-portfolio"]:checked').value;
+
+        let portfolioToCompare;
+        if (selectedPortfolioType === 'custom') {
+            if (!this.comparisonPortfolio || Object.keys(this.comparisonPortfolio).length === 0) {
+                this.showError('Please add some holdings to your comparison portfolio');
+                return;
+            }
+            portfolioToCompare = this.comparisonPortfolio;
+        } else {
+            // Use sample portfolio
+            portfolioToCompare = {
+                'AAPL': 100,
+                'MSFT': 50,
+                'GOOGL': 25,
+                'NVDA': 30,
+                'TSLA': 20
+            };
+        }
+
+        try {
+            // Show loading and hide setup
+            const setupSection = document.getElementById('comparison-setup');
+            const resultsSection = document.getElementById('comparison-results');
+            const loadingSection = document.getElementById('comparison-loading');
+            const contentSection = document.getElementById('comparison-content');
+
+            setupSection.style.display = 'none';
+            resultsSection.style.display = 'block';
+            loadingSection.style.display = 'block';
+            contentSection.style.display = 'none';
+
+            // Make API call
+            const comparison = await api.comparePortfolios(portfolioToCompare);
+
+            // Display results
+            this.displayComparisonResults(comparison);
+
+            // Hide loading, show content
+            loadingSection.style.display = 'none';
+            contentSection.style.display = 'block';
+
+        } catch (error) {
+            console.error('Failed to perform comparison:', error);
+            this.showError('Failed to perform portfolio comparison. Please try again.');
+
+            // Reset view on error
+            const setupSection = document.getElementById('comparison-setup');
+            const resultsSection = document.getElementById('comparison-results');
+            setupSection.style.display = 'block';
+            resultsSection.style.display = 'none';
+        }
+    }
+
+    displayComparisonResults(comparison) {
+        const contentSection = document.getElementById('comparison-content');
+
+        const resultsHTML = `
+            <div class="comparison-header">
+                <h3>Portfolio Comparison Results</h3>
+                <button class="back-to-setup" onclick="app.backToComparisonSetup()">← Back to Setup</button>
+            </div>
+
+            <div class="comparison-summary">
+                <div class="portfolio-summary-cards">
+                    <div class="summary-card">
+                        <h4>${comparison.portfolio_a.name}</h4>
+                        <div class="summary-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">Total Value:</span>
+                                <span class="stat-value">${formatCurrency(comparison.portfolio_a.total_value)}</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Avg Momentum:</span>
+                                <span class="stat-value" style="color: ${getScoreColor(comparison.portfolio_a.average_momentum_score)}">
+                                    ${formatScore(comparison.portfolio_a.average_momentum_score)}
+                                </span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Positions:</span>
+                                <span class="stat-value">${comparison.portfolio_a.number_of_positions}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="vs-divider">VS</div>
+
+                    <div class="summary-card">
+                        <h4>${comparison.portfolio_b.name}</h4>
+                        <div class="summary-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">Total Value:</span>
+                                <span class="stat-value">${formatCurrency(comparison.portfolio_b.total_value)}</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Avg Momentum:</span>
+                                <span class="stat-value" style="color: ${getScoreColor(comparison.portfolio_b.average_momentum_score)}">
+                                    ${formatScore(comparison.portfolio_b.average_momentum_score)}
+                                </span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Positions:</span>
+                                <span class="stat-value">${comparison.portfolio_b.number_of_positions}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="comparison-sections">
+                <!-- Performance Comparison -->
+                <div class="comparison-section">
+                    <h4>Performance Metrics</h4>
+                    <div class="performance-table">
+                        <table class="comparison-table">
+                            <thead>
+                                <tr>
+                                    <th>Metric</th>
+                                    <th>${comparison.portfolio_a.name}</th>
+                                    <th>${comparison.portfolio_b.name}</th>
+                                    <th>Difference</th>
+                                    <th>Winner</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${comparison.performance_comparison.map(perf => `
+                                    <tr>
+                                        <td>${perf.metric}</td>
+                                        <td>${this.formatMetricValue(perf.metric, perf.portfolio_a_value)}</td>
+                                        <td>${this.formatMetricValue(perf.metric, perf.portfolio_b_value)}</td>
+                                        <td class="${perf.difference >= 0 ? 'positive' : 'negative'}">
+                                            ${perf.difference >= 0 ? '+' : ''}${this.formatMetricValue(perf.metric, perf.difference)}
+                                        </td>
+                                        <td>
+                                            <span class="winner-badge ${perf.winner}">
+                                                ${perf.winner === 'portfolio_a' ? comparison.portfolio_a.name :
+                                                  perf.winner === 'portfolio_b' ? comparison.portfolio_b.name : 'Tie'}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Allocation Comparison -->
+                <div class="comparison-section">
+                    <h4>Category Allocation Differences</h4>
+                    <div class="allocation-comparison">
+                        ${comparison.allocation_comparison.slice(0, 8).map(alloc => `
+                            <div class="allocation-item">
+                                <div class="allocation-header">
+                                    <span class="category-name">${alloc.category}</span>
+                                    <span class="allocation-difference ${alloc.difference >= 0 ? 'positive' : 'negative'}">
+                                        ${alloc.difference >= 0 ? '+' : ''}${alloc.difference.toFixed(1)}%
+                                    </span>
+                                </div>
+                                <div class="allocation-bars">
+                                    <div class="allocation-bar">
+                                        <span class="bar-label">${comparison.portfolio_a.name}:</span>
+                                        <div class="bar-container">
+                                            <div class="bar-fill" style="width: ${Math.min(alloc.portfolio_a_percent, 100)}%"></div>
+                                            <span class="bar-value">${alloc.portfolio_a_percent.toFixed(1)}%</span>
+                                        </div>
+                                    </div>
+                                    <div class="allocation-bar">
+                                        <span class="bar-label">${comparison.portfolio_b.name}:</span>
+                                        <div class="bar-container">
+                                            <div class="bar-fill" style="width: ${Math.min(alloc.portfolio_b_percent, 100)}%"></div>
+                                            <span class="bar-value">${alloc.portfolio_b_percent.toFixed(1)}%</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <!-- Key Differences -->
+                <div class="comparison-section">
+                    <h4>Key Differences</h4>
+                    <div class="key-differences">
+                        ${comparison.key_differences.map(diff => `
+                            <div class="difference-item">
+                                <span class="difference-icon">📊</span>
+                                <span class="difference-text">${diff}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <!-- Recommendation -->
+                <div class="comparison-section">
+                    <h4>Recommendation</h4>
+                    <div class="recommendation">
+                        <div class="recommendation-text">
+                            ${comparison.recommendation}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Diversification Metrics -->
+                <div class="comparison-section">
+                    <h4>Diversification Analysis</h4>
+                    <div class="diversification-comparison">
+                        <div class="diversification-cards">
+                            <div class="diversification-card">
+                                <h5>${comparison.portfolio_a.name}</h5>
+                                <div class="diversification-metrics">
+                                    <div class="metric">
+                                        <span class="metric-label">Top 5 Concentration:</span>
+                                        <span class="metric-value">${comparison.diversification_a.concentration_ratio.toFixed(1)}%</span>
+                                    </div>
+                                    <div class="metric">
+                                        <span class="metric-label">Sectors:</span>
+                                        <span class="metric-value">${comparison.diversification_a.sector_count}</span>
+                                    </div>
+                                    <div class="metric">
+                                        <span class="metric-label">Largest Position:</span>
+                                        <span class="metric-value">${comparison.diversification_a.largest_position_percent.toFixed(1)}%</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="diversification-card">
+                                <h5>${comparison.portfolio_b.name}</h5>
+                                <div class="diversification-metrics">
+                                    <div class="metric">
+                                        <span class="metric-label">Top 5 Concentration:</span>
+                                        <span class="metric-value">${comparison.diversification_b.concentration_ratio.toFixed(1)}%</span>
+                                    </div>
+                                    <div class="metric">
+                                        <span class="metric-label">Sectors:</span>
+                                        <span class="metric-value">${comparison.diversification_b.sector_count}</span>
+                                    </div>
+                                    <div class="metric">
+                                        <span class="metric-label">Largest Position:</span>
+                                        <span class="metric-value">${comparison.diversification_b.largest_position_percent.toFixed(1)}%</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        contentSection.innerHTML = resultsHTML;
+    }
+
+    formatMetricValue(metric, value) {
+        if (typeof value !== 'number') return value;
+
+        if (metric.includes('Value')) {
+            return formatCurrency(value);
+        } else if (metric.includes('Score') || metric.includes('Ratio')) {
+            return value.toFixed(2);
+        } else if (metric.includes('%') || metric.includes('Return') || metric.includes('Volatility') || metric.includes('Drawdown')) {
+            return value.toFixed(2) + '%';
+        } else {
+            return Math.round(value);
+        }
+    }
+
+    backToComparisonSetup() {
+        const setupSection = document.getElementById('comparison-setup');
+        const resultsSection = document.getElementById('comparison-results');
+
+        setupSection.style.display = 'block';
+        resultsSection.style.display = 'none';
     }
 }
 

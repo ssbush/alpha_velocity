@@ -75,8 +75,12 @@ for domain in \
     "update.code.visualstudio.com" \
     "fc.yahoo.com" \
     "pypi.org" \
-    "files.pythonhosted.org"; do
-
+    "files.pythonhosted.org" \
+    "deb.debian.org" \
+    "debian.map.fastlydns.net" \
+    "security.debian.org" \
+    "ftp.debian.org"; do
+    
     echo "Raw dig output:"
     dig +noall +answer A "$domain"
 

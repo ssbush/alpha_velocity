@@ -709,6 +709,16 @@ async def get_category_analysis_db(portfolio_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error analyzing categories: {str(e)}")
 
+@app.get("/database/portfolio/{portfolio_id}/categories-detailed")
+async def get_portfolio_by_categories_db(portfolio_id: int):
+    """Get portfolio holdings organized by categories with detailed information"""
+    service = get_db_service()
+    try:
+        result = service.get_portfolio_by_categories(portfolio_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching categorized portfolio: {str(e)}")
+
 @app.post("/database/portfolio/{portfolio_id}/transaction")
 async def add_transaction_db(portfolio_id: int, transaction_data: dict):
     """Add a new transaction to portfolio"""

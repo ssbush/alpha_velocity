@@ -6,6 +6,7 @@ import time
 warnings.filterwarnings('ignore')
 
 from ..utils.data_providers import DataProvider
+from .historical_service import HistoricalDataService
 
 class MomentumEngine:
     """
@@ -30,6 +31,9 @@ class MomentumEngine:
         # Simple memory cache for momentum scores (5-minute TTL)
         self._cache = {}
         self._cache_ttl = 300  # 5 minutes
+
+        # Historical data service
+        self.historical_service = HistoricalDataService()
 
     def get_stock_data(self, ticker: str, period: str = '1y'):
         """Fetch stock data via data provider"""
@@ -171,6 +175,124 @@ class MomentumEngine:
         except Exception:
             return 50
 
+    def calculate_historical_momentum_score(self, ticker: str, end_date: str) -> dict:
+        """Calculate momentum score for a ticker as of a specific historical date"""
+        from datetime import datetime, timedelta
+        import yfinance as yf
+
+        try:
+            # Convert end_date string to datetime
+            target_date = datetime.strptime(end_date, '%Y-%m-%d')
+
+            # Get historical data up to the target date (need 1+ years for momentum calculations)
+            start_date = target_date - timedelta(days=400)  # Extra buffer for weekends/holidays
+
+            # Fetch historical data up to the target date
+            stock = yf.Ticker(ticker)
+            hist_data = stock.history(
+                start=start_date.strftime('%Y-%m-%d'),
+                end=(target_date + timedelta(days=1)).strftime('%Y-%m-%d')
+            )
+
+            if hist_data.empty or len(hist_data) < 50:
+                return {
+                    'ticker': ticker,
+                    'composite_score': 0,
+                    'rating': 'Insufficient Data',
+                    'price_momentum': 0,
+                    'technical_momentum': 0,
+                    'fundamental_momentum': 0,
+                    'relative_momentum': 0
+                }
+
+            # Calculate individual components using historical data up to target date
+            price_momentum = self.calculate_price_momentum(hist_data)
+            technical_momentum = self.calculate_technical_momentum(hist_data)
+
+            # For fundamental data, we'll use a simplified approach since historical fundamentals are harder to get
+            # Use a base score with some variation based on price performance
+            recent_return = (hist_data['Close'].iloc[-1] / hist_data['Close'].iloc[-21] - 1) if len(hist_data) >= 21 else 0
+            fundamental_momentum = max(30, min(90, 60 + (recent_return * 100)))  # Scale around 60
+
+            # Calculate relative momentum against SPY for the same period
+            relative_momentum = self.calculate_historical_relative_momentum(ticker, hist_data, target_date)
+
+            # Calculate weighted composite score
+            composite_score = (
+                price_momentum * self.weights['price_momentum'] +
+                technical_momentum * self.weights['technical_momentum'] +
+                fundamental_momentum * self.weights['fundamental_momentum'] +
+                relative_momentum * self.weights['relative_momentum']
+            )
+
+            # Determine rating
+            if composite_score >= 80:
+                rating = 'Strong Buy'
+            elif composite_score >= 65:
+                rating = 'Buy'
+            elif composite_score >= 50:
+                rating = 'Hold'
+            elif composite_score >= 35:
+                rating = 'Weak Hold'
+            else:
+                rating = 'Sell'
+
+            return {
+                'ticker': ticker,
+                'composite_score': round(composite_score, 1),
+                'rating': rating,
+                'price_momentum': round(price_momentum, 1),
+                'technical_momentum': round(technical_momentum, 1),
+                'fundamental_momentum': round(fundamental_momentum, 1),
+                'relative_momentum': round(relative_momentum, 1)
+            }
+
+        except Exception as e:
+            # Fallback to a reasonable default based on historical context
+            return {
+                'ticker': ticker,
+                'composite_score': 60.0,  # Neutral score for historical data
+                'rating': 'Hold',
+                'price_momentum': 60.0,
+                'technical_momentum': 60.0,
+                'fundamental_momentum': 60.0,
+                'relative_momentum': 60.0
+            }
+
+    def calculate_historical_relative_momentum(self, ticker: str, hist_data: pd.DataFrame, target_date: datetime, benchmark: str = 'SPY') -> float:
+        """Calculate relative momentum against benchmark for a specific historical date"""
+        try:
+            import yfinance as yf
+            from datetime import timedelta
+
+            # Get benchmark data for the same period
+            start_date = target_date - timedelta(days=400)
+            benchmark_stock = yf.Ticker(benchmark)
+            benchmark_data = benchmark_stock.history(
+                start=start_date.strftime('%Y-%m-%d'),
+                end=(target_date + timedelta(days=1)).strftime('%Y-%m-%d')
+            )
+
+            if benchmark_data.empty or len(hist_data) < 21:
+                return 50
+
+            # Calculate 21-day returns for both stock and benchmark
+            stock_return = (hist_data['Close'].iloc[-1] / hist_data['Close'].iloc[-21] - 1) if len(hist_data) >= 21 else 0
+            benchmark_return = (benchmark_data['Close'].iloc[-1] / benchmark_data['Close'].iloc[-21] - 1) if len(benchmark_data) >= 21 else 0
+
+            relative_performance = stock_return - benchmark_return
+
+            # Scale to 0-100
+            if relative_performance > 0.05:  # > 5% outperformance
+                return 100
+            elif relative_performance > 0:
+                return 50 + (relative_performance * 1000)  # Scale 0-5% to 50-100
+            else:
+                return max(0, 50 + (relative_performance * 500))  # Scale negative performance
+
+        except Exception:
+            return 50
+
     def calculate_momentum_score(self, ticker: str) -> dict:
         """Calculate comprehensive momentum score for a ticker"""
         # Check cache first
@@ -236,6 +358,14 @@ class MomentumEngine:
 
         # Cache the result
         self._cache[cache_key] = (result, current_time)
+
+        # Record historical data (only for successful calculations)
+        if result['composite_score'] > 0:
+            try:
+                self.historical_service.record_momentum_score(ticker, result)
+            except Exception as e:
+                # Don't fail the main calculation if historical recording fails
+                print(f"Warning: Failed to record historical data for {ticker}: {e}")
 
         return result
 

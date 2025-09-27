@@ -136,6 +136,9 @@ class PortfolioService:
         total_portfolio_value = sum(data['market_value'] for data in portfolio_data)
         avg_momentum_score = df['Momentum_Score'].mean()
 
+        # Historical tracking is now handled by the daily cache system
+        # No need to record on every portfolio analysis
+
         return df, total_portfolio_value, avg_momentum_score
 
     def get_category_analysis(self, category_name: str) -> Dict:
@@ -239,16 +242,36 @@ class PortfolioService:
         }
 
     def _calculate_current_allocation(self, portfolio: Dict[str, int]) -> Dict[str, float]:
-        """Calculate current allocation percentages by category"""
-        # This is a simplified version - in practice you'd use market values
-        total_positions = sum(portfolio.values())
+        """Calculate current allocation percentages by category based on dollar values"""
+        import yfinance as yf
+
+        # Get current prices for all positions
+        total_portfolio_value = 0
+        position_values = {}
+
+        for ticker, shares in portfolio.items():
+            try:
+                stock = yf.Ticker(ticker)
+                hist_data = stock.history(period="1d")
+                if hist_data is not None and not hist_data.empty:
+                    current_price = hist_data['Close'].iloc[-1]
+                    market_value = shares * current_price
+                    position_values[ticker] = market_value
+                    total_portfolio_value += market_value
+                else:
+                    position_values[ticker] = 0
+            except Exception as e:
+                print(f"Error fetching price for {ticker}: {e}")
+                position_values[ticker] = 0
+
+        # Calculate allocation by category based on dollar values
         category_allocation = {}
 
         for category_name, category_info in self.portfolio_categories.items():
-            category_positions = sum(
-                shares for ticker, shares in portfolio.items()
+            category_value = sum(
+                position_values.get(ticker, 0) for ticker in portfolio.keys()
                 if ticker in category_info['tickers']
             )
-            category_allocation[category_name] = category_positions / total_positions if total_positions > 0 else 0
+            category_allocation[category_name] = category_value / total_portfolio_value if total_portfolio_value > 0 else 0
 
         return category_allocation

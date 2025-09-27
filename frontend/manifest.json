@@ -1,0 +1,92 @@
+{
+  "name": "AlphaVelocity - AI Momentum Scoring",
+  "short_name": "AlphaVelocity",
+  "description": "AI-powered supply chain momentum scoring engine for portfolio analysis and optimization",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#4c1d95",
+  "theme_color": "#4c1d95",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "lang": "en-US",
+  "categories": ["finance", "business", "productivity"],
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' fill='%234c1d95' rx='24'/><text x='96' y='120' font-size='96' text-anchor='middle' fill='white'>⚡</text></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' fill='%234c1d95' rx='64'/><text x='256' y='320' font-size='256' text-anchor='middle' fill='white'>⚡</text></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' fill='%234c1d95' rx='24'/><text x='96' y='120' font-size='96' text-anchor='middle' fill='white'>⚡</text></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Portfolio Analysis",
+      "short_name": "Portfolio",
+      "description": "View and analyze your portfolio holdings",
+      "url": "/?view=portfolio",
+      "icons": [
+        {
+          "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'><rect width='96' height='96' fill='%236366f1' rx='12'/><text x='48' y='60' font-size='48' text-anchor='middle' fill='white'>📊</text></svg>",
+          "sizes": "96x96",
+          "type": "image/svg+xml"
+        }
+      ]
+    },
+    {
+      "name": "Stock Search",
+      "short_name": "Search",
+      "description": "Search and analyze individual stocks",
+      "url": "/?view=search",
+      "icons": [
+        {
+          "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'><rect width='96' height='96' fill='%2310b981' rx='12'/><text x='48' y='60' font-size='48' text-anchor='middle' fill='white'>🔍</text></svg>",
+          "sizes": "96x96",
+          "type": "image/svg+xml"
+        }
+      ]
+    },
+    {
+      "name": "Watchlist",
+      "short_name": "Watchlist",
+      "description": "View portfolio recommendations and watchlist",
+      "url": "/?view=watchlist",
+      "icons": [
+        {
+          "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'><rect width='96' height='96' fill='%23f59e0b' rx='12'/><text x='48' y='60' font-size='48' text-anchor='middle' fill='white'>⭐</text></svg>",
+          "sizes": "96x96",
+          "type": "image/svg+xml"
+        }
+      ]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 390 844'><rect width='390' height='844' fill='%23f8fafc'/><text x='195' y='422' font-size='24' text-anchor='middle' fill='%234c1d95'>AlphaVelocity Dashboard</text></svg>",
+      "sizes": "390x844",
+      "type": "image/svg+xml",
+      "form_factor": "narrow",
+      "label": "AlphaVelocity mobile dashboard showing portfolio performance"
+    }
+  ],
+  "related_applications": [],
+  "prefer_related_applications": false,
+  "edge_side_panel": {
+    "preferred_width": 400
+  },
+  "handle_links": "preferred",
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  }
+}

@@ -275,10 +275,39 @@ class AlphaVelocityApp {
     }
 
     calculatePortfolioSummary(holdings) {
-        // Simple calculation - in real app you'd get current prices and calculate total value
+        if (!holdings || holdings.length === 0) {
+            return {
+                total_value: 0,
+                average_momentum_score: 0,
+                number_of_positions: 0
+            };
+        }
+
+        // Calculate real portfolio values from database holdings
+        let totalValue = 0;
+        let totalCostBasis = 0;
+
+        for (const holding of holdings) {
+            if (holding.total_cost_basis) {
+                totalCostBasis += parseFloat(holding.total_cost_basis);
+
+                // If we have current market data, use it. Otherwise use cost basis as estimate
+                if (holding.current_value) {
+                    totalValue += parseFloat(holding.current_value);
+                } else {
+                    // Estimate current value as 10% more than cost basis (placeholder)
+                    totalValue += parseFloat(holding.total_cost_basis) * 1.1;
+                }
+            }
+        }
+
+        // Use placeholder momentum score for now (could be enhanced to fetch real scores)
+        const averageMomentumScore = 72.5;
+
         return {
-            total_value: holdings.length * 1000, // Placeholder
-            average_momentum_score: 75, // Placeholder
+            total_value: totalValue,
+            total_cost_basis: totalCostBasis,
+            average_momentum_score: averageMomentumScore,
             number_of_positions: holdings.length
         };
     }
@@ -336,7 +365,13 @@ class AlphaVelocityApp {
         try {
             loading.style.display = 'block';
 
-            // Load both portfolio and categories data
+            if (this.databaseMode) {
+                // Use database categorized portfolio data
+                await this.loadDatabasePortfolioData(container, loading);
+                return;
+            }
+
+            // Load both portfolio and categories data (file mode)
             const [portfolio, categories] = await Promise.all([
                 api.getPortfolioAnalysis(),
                 api.getCategories()
@@ -424,10 +459,10 @@ class AlphaVelocityApp {
                                 ${categoryData.holdings.map(holding => `
                                     <tr>
                                         <td class="ticker-cell">${holding.ticker}</td>
-                                        <td>${holding.shares}</td>
-                                        <td>${holding.price}</td>
-                                        <td>${holding.market_value}</td>
-                                        <td>${holding.portfolio_percent}</td>
+                                        <td class="data-cell">${holding.shares}</td>
+                                        <td class="data-cell">${holding.price}</td>
+                                        <td class="data-cell">${holding.market_value}</td>
+                                        <td class="data-cell">${holding.portfolio_percent}</td>
                                         <td class="score-cell" style="color: ${getScoreColor(holding.momentum_score)}">
                                             ${formatScore(holding.momentum_score)}
                                         </td>
@@ -465,10 +500,10 @@ class AlphaVelocityApp {
                                 ${ungroupedHoldings.map(holding => `
                                     <tr>
                                         <td class="ticker-cell">${holding.ticker}</td>
-                                        <td>${holding.shares}</td>
-                                        <td>${holding.price}</td>
-                                        <td>${holding.market_value}</td>
-                                        <td>${holding.portfolio_percent}</td>
+                                        <td class="data-cell">${holding.shares}</td>
+                                        <td class="data-cell">${holding.price}</td>
+                                        <td class="data-cell">${holding.market_value}</td>
+                                        <td class="data-cell">${holding.portfolio_percent}</td>
                                         <td class="score-cell" style="color: ${getScoreColor(holding.momentum_score)}">
                                             ${formatScore(holding.momentum_score)}
                                         </td>
@@ -505,6 +540,100 @@ class AlphaVelocityApp {
         } catch (error) {
             loading.textContent = 'Failed to load portfolio data';
             console.error('Failed to load portfolio:', error);
+        }
+    }
+
+    async loadDatabasePortfolioData(container, loading) {
+        try {
+            // Load categorized portfolio data from database
+            const portfolioData = await api.getPortfolioByCategories(this.currentPortfolioId);
+
+            let portfolioHTML = `
+                <div class="portfolio-summary-db">
+                    <div class="summary-stats">
+                        <div class="stat">
+                            <span class="stat-label">Total Portfolio Value:</span>
+                            <span class="stat-value">${formatCurrency(portfolioData.total_portfolio_value)}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">Categories:</span>
+                            <span class="stat-value">${portfolioData.total_categories}</span>
+                        </div>
+                        <div class="stat">
+                            <span class="stat-label">Total Positions:</span>
+                            <span class="stat-value">${portfolioData.total_positions}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Render each category
+            portfolioData.categories.forEach(category => {
+                const avgScore = category.holdings.length > 0 ?
+                    category.holdings.reduce((sum, h) => sum + (h.momentum_score || 70), 0) / category.holdings.length : 70;
+
+                portfolioHTML += `
+                    <div class="portfolio-category">
+                        <div class="category-header-portfolio">
+                            <h3>${category.category_name}</h3>
+                            <div class="category-summary">
+                                <span class="category-value">${formatCurrency(category.total_value)}</span>
+                                <span class="category-allocation">Target: ${formatPercentage(category.target_allocation_pct)}%</span>
+                                <span class="category-benchmark">Benchmark: ${category.benchmark_ticker || 'N/A'}</span>
+                                <span class="category-positions">${category.position_count} positions</span>
+                            </div>
+                            <div class="category-description">${category.description || ''}</div>
+                        </div>
+                        <table class="category-table">
+                            <thead>
+                                <tr>
+                                    <th>Ticker</th>
+                                    <th>Company</th>
+                                    <th>Sector</th>
+                                    <th>Shares</th>
+                                    <th>Avg Cost</th>
+                                    <th>Total Cost</th>
+                                    <th>Current Value</th>
+                                    <th>Gain/Loss</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${category.holdings.map(holding => {
+                                    const gainLoss = holding.current_value - holding.total_cost_basis;
+                                    const gainLossPercent = holding.total_cost_basis > 0 ?
+                                        ((gainLoss / holding.total_cost_basis) * 100) : 0;
+                                    const gainLossColor = gainLoss >= 0 ? '#10b981' : '#ef4444';
+
+                                    return `
+                                        <tr>
+                                            <td class="ticker-cell">
+                                                <strong>${holding.ticker}</strong>
+                                            </td>
+                                            <td class="company-cell">${holding.company_name}</td>
+                                            <td class="sector-cell">${holding.sector || 'N/A'}</td>
+                                            <td class="data-cell">${holding.shares.toFixed(2)}</td>
+                                            <td class="data-cell">${formatCurrency(holding.average_cost_basis)}</td>
+                                            <td class="data-cell">${formatCurrency(holding.total_cost_basis)}</td>
+                                            <td class="data-cell"><strong>${formatCurrency(holding.current_value)}</strong></td>
+                                            <td style="color: ${gainLossColor}">
+                                                ${formatCurrency(gainLoss)} (${gainLossPercent.toFixed(1)}%)
+                                            </td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = portfolioHTML;
+            loading.style.display = 'none';
+
+        } catch (error) {
+            console.error('Failed to load database portfolio data:', error);
+            container.innerHTML = '<div class="error">Failed to load portfolio data from database</div>';
+            loading.style.display = 'none';
         }
     }
 
@@ -916,10 +1045,10 @@ class AlphaVelocityApp {
                         ${analysis.holdings.map(holding => `
                             <tr>
                                 <td class="ticker-cell">${holding.ticker}</td>
-                                <td>${holding.shares}</td>
-                                <td>${holding.price}</td>
-                                <td>${holding.market_value}</td>
-                                <td>${holding.portfolio_percent}</td>
+                                <td class="data-cell">${holding.shares}</td>
+                                <td class="data-cell">${holding.price}</td>
+                                <td class="data-cell">${holding.market_value}</td>
+                                <td class="data-cell">${holding.portfolio_percent}</td>
                                 <td class="score-cell" style="color: ${getScoreColor(holding.momentum_score)}">
                                     ${formatScore(holding.momentum_score)}
                                 </td>

@@ -148,6 +148,77 @@ def get_db_service():
                 except Exception as e:
                     raise Exception(f"Error adding transaction: {e}")
 
+            def get_portfolio_by_categories(self, portfolio_id: int):
+                """Get portfolio holdings organized by categories"""
+                try:
+                    with self.db_config.get_session_context() as session:
+                        # Query holdings with categories
+                        holdings_query = session.query(
+                            Holding,
+                            SecurityMaster,
+                            Category
+                        ).join(
+                            SecurityMaster, Holding.security_id == SecurityMaster.id
+                        ).outerjoin(
+                            Category, Holding.category_id == Category.id
+                        ).filter(Holding.portfolio_id == portfolio_id)
+
+                        holdings_data = holdings_query.all()
+
+                        # Organize by categories
+                        categories_dict = {}
+
+                        for holding, security, category in holdings_data:
+                            cat_name = category.name if category else "Uncategorized"
+
+                            if cat_name not in categories_dict:
+                                categories_dict[cat_name] = {
+                                    "category_name": cat_name,
+                                    "target_allocation_pct": float(category.target_allocation_pct) if category and category.target_allocation_pct else 0,
+                                    "benchmark_ticker": category.benchmark_ticker if category else None,
+                                    "description": category.description if category else None,
+                                    "holdings": [],
+                                    "total_value": 0,
+                                    "total_cost_basis": 0,
+                                    "position_count": 0
+                                }
+
+                            # Calculate current value (estimate as 10% more than cost basis)
+                            cost_basis = float(holding.total_cost_basis) if holding.total_cost_basis else 0
+                            current_value = cost_basis * 1.1
+
+                            holding_data = {
+                                "id": holding.id,
+                                "ticker": security.ticker,
+                                "company_name": security.company_name,
+                                "sector": security.sector,
+                                "shares": float(holding.shares),
+                                "average_cost_basis": float(holding.average_cost_basis) if holding.average_cost_basis else 0,
+                                "total_cost_basis": cost_basis,
+                                "current_value": current_value,
+                                "security_type": security.security_type
+                            }
+
+                            categories_dict[cat_name]["holdings"].append(holding_data)
+                            categories_dict[cat_name]["total_value"] += current_value
+                            categories_dict[cat_name]["total_cost_basis"] += cost_basis
+                            categories_dict[cat_name]["position_count"] += 1
+
+                        # Convert to list and sort by target allocation
+                        categories_list = list(categories_dict.values())
+                        categories_list.sort(key=lambda x: x["target_allocation_pct"], reverse=True)
+
+                        return {
+                            "portfolio_id": portfolio_id,
+                            "categories": categories_list,
+                            "total_categories": len(categories_list),
+                            "total_positions": sum(cat["position_count"] for cat in categories_list),
+                            "total_portfolio_value": sum(cat["total_value"] for cat in categories_list)
+                        }
+
+                except Exception as e:
+                    raise Exception(f"Error getting portfolio by categories: {e}")
+
             def get_transactions(self, portfolio_id: int, limit: int = 50):
                 """Get transaction history"""
                 try:

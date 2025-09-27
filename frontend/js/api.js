@@ -101,6 +101,11 @@ class AlphaVelocityAPI {
         return this.request(`/database/portfolio/${portfolioId}/categories`);
     }
 
+    // Get portfolio holdings organized by categories
+    async getPortfolioByCategories(portfolioId) {
+        return this.request(`/database/portfolio/${portfolioId}/categories-detailed`);
+    }
+
     // Add transaction to portfolio
     async addTransaction(portfolioId, transactionData) {
         return this.request(`/database/portfolio/${portfolioId}/transaction`, {

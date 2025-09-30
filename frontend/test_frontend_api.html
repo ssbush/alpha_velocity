@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Connection Test</title>
+</head>
+<body>
+    <h1>AlphaVelocity API Connection Test</h1>
+    <div id="status">Testing...</div>
+    <div id="result"></div>
+
+    <script>
+        async function testAPI() {
+            const statusDiv = document.getElementById('status');
+            const resultDiv = document.getElementById('result');
+
+            try {
+                statusDiv.innerHTML = 'Testing API connection...';
+
+                const response = await fetch('http://localhost:8000/');
+                const data = await response.json();
+
+                statusDiv.innerHTML = '✅ API Connection Successful!';
+                resultDiv.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+
+                // Test portfolio endpoint
+                const portfolioResponse = await fetch('http://localhost:8000/portfolio/analysis');
+                const portfolioData = await portfolioResponse.json();
+
+                resultDiv.innerHTML += `<h3>Portfolio Data:</h3><pre>${JSON.stringify(portfolioData, null, 2)}</pre>`;
+
+            } catch (error) {
+                statusDiv.innerHTML = '❌ API Connection Failed!';
+                resultDiv.innerHTML = `<pre style="color: red;">Error: ${error.message}\n\nStack: ${error.stack}</pre>`;
+            }
+        }
+
+        testAPI();
+    </script>
+</body>
+</html>

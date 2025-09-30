@@ -123,16 +123,22 @@ def get_db_service():
                             session.add(security)
                             session.flush()
 
+                        # Calculate total amount
+                        shares = Decimal(str(transaction_data.get("shares", 0)))
+                        price_per_share = Decimal(str(transaction_data.get("price_per_share", 0)))
+                        fees = Decimal(str(transaction_data.get("fees", 0)))
+                        total_amount = (shares * price_per_share) + fees
+
                         # Create transaction
                         transaction = Transaction(
                             portfolio_id=portfolio_id,
                             security_id=security.id,
                             transaction_type=transaction_data.get("transaction_type", "BUY"),
-                            transaction_date=datetime.now().date(),
-                            shares=Decimal(str(transaction_data.get("shares", 0))),
-                            price_per_share=Decimal(str(transaction_data.get("price_per_share", 0))),
-                            total_amount=Decimal(str(transaction_data.get("total_amount", 0))),
-                            fees=Decimal(str(transaction_data.get("fees", 0)))
+                            transaction_date=datetime.strptime(transaction_data.get("transaction_date", datetime.now().strftime('%Y-%m-%d')), '%Y-%m-%d').date(),
+                            shares=shares,
+                            price_per_share=price_per_share,
+                            total_amount=total_amount,
+                            fees=fees
                         )
                         session.add(transaction)
                         session.commit()
@@ -183,9 +189,23 @@ def get_db_service():
                                     "position_count": 0
                                 }
 
-                            # Calculate current value (estimate as 10% more than cost basis)
+                            # Calculate current value using real-time prices
                             cost_basis = float(holding.total_cost_basis) if holding.total_cost_basis else 0
-                            current_value = cost_basis * 1.1
+                            current_value = cost_basis  # Default fallback
+
+                            # Fetch current market price
+                            try:
+                                import yfinance as yf
+                                stock = yf.Ticker(security.ticker)
+                                hist_data = stock.history(period="1d")
+                                if hist_data is not None and not hist_data.empty:
+                                    current_price = hist_data['Close'].iloc[-1]
+                                    current_value = float(holding.shares) * current_price
+                                else:
+                                    print(f"Warning: No price data available for {security.ticker}")
+                            except Exception as e:
+                                print(f"Error fetching price for {security.ticker}: {e}")
+                                # Keep fallback value (cost_basis)
 
                             holding_data = {
                                 "id": holding.id,

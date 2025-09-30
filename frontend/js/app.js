@@ -182,6 +182,9 @@ class AlphaVelocityApp {
             case 'portfolio':
                 this.loadPortfolioData();
                 break;
+            case 'portfolio-builder':
+                this.loadPortfolioBuilderData();
+                break;
             case 'categories':
                 this.loadCategoriesData();
                 break;
@@ -1801,6 +1804,239 @@ class AlphaVelocityApp {
         } else {
             return Math.round(value);
         }
+    }
+
+    // Portfolio Builder functionality
+    async loadPortfolioBuilderData() {
+        // Set today's date as default
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('transaction-date').value = today;
+
+        // Setup event listeners
+        this.setupPortfolioBuilderEventListeners();
+
+        // Load transaction history and portfolio summary
+        await this.loadTransactionHistory();
+        await this.updateBuilderPortfolioSummary();
+    }
+
+    setupPortfolioBuilderEventListeners() {
+        const addTransactionBtn = document.getElementById('add-transaction-btn');
+        const clearFormBtn = document.getElementById('clear-form-btn');
+
+        if (addTransactionBtn) {
+            addTransactionBtn.addEventListener('click', () => this.addTransaction());
+        }
+
+        if (clearFormBtn) {
+            clearFormBtn.addEventListener('click', () => this.clearTransactionForm());
+        }
+
+        // Enter key support for form fields
+        const formInputs = ['transaction-ticker', 'transaction-shares', 'transaction-price'];
+        formInputs.forEach(inputId => {
+            const input = document.getElementById(inputId);
+            if (input) {
+                input.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') this.addTransaction();
+                });
+            }
+        });
+    }
+
+    async addTransaction() {
+        const ticker = document.getElementById('transaction-ticker').value.trim().toUpperCase();
+        const type = document.getElementById('transaction-type').value;
+        const shares = parseFloat(document.getElementById('transaction-shares').value);
+        const price = parseFloat(document.getElementById('transaction-price').value);
+        const date = document.getElementById('transaction-date').value;
+        const fees = parseFloat(document.getElementById('transaction-fees').value) || 0;
+        const notes = document.getElementById('transaction-notes').value.trim();
+
+        // Validation
+        if (!ticker) {
+            this.showError('Please enter a stock ticker');
+            return;
+        }
+
+        if (!shares || shares <= 0) {
+            this.showError('Please enter a valid number of shares');
+            return;
+        }
+
+        if (!price || price <= 0) {
+            this.showError('Please enter a valid price per share');
+            return;
+        }
+
+        if (!date) {
+            this.showError('Please select a transaction date');
+            return;
+        }
+
+        const transactionData = {
+            ticker: ticker,
+            transaction_type: type,
+            shares: shares,
+            price_per_share: price,
+            transaction_date: date,
+            fees: fees,
+            notes: notes || null
+        };
+
+        try {
+            this.showLoading('Adding transaction...');
+
+            const result = await api.request(`/database/portfolio/${this.currentPortfolioId}/transaction`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(transactionData)
+            });
+
+            // If we get here, the request was successful (api.request already handled HTTP errors)
+            this.showSuccess('Transaction added successfully!');
+            this.clearTransactionForm();
+            await this.loadTransactionHistory();
+            await this.updateBuilderPortfolioSummary();
+        } catch (error) {
+            console.error('Error adding transaction:', error);
+            this.showError(`Error adding transaction: ${error.message || error}. Please try again.`);
+        }
+    }
+
+    clearTransactionForm() {
+        document.getElementById('transaction-ticker').value = '';
+        document.getElementById('transaction-type').value = 'BUY';
+        document.getElementById('transaction-shares').value = '';
+        document.getElementById('transaction-price').value = '';
+        document.getElementById('transaction-fees').value = '';
+        document.getElementById('transaction-notes').value = '';
+
+        // Set today's date as default
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('transaction-date').value = today;
+    }
+
+    async loadTransactionHistory() {
+        const historyContainer = document.getElementById('transaction-history');
+
+        try {
+            const response = await api.request(`/database/portfolio/${this.currentPortfolioId}/transactions?limit=50`);
+
+            if (response.ok) {
+                const data = await response.json();
+                const transactions = data.transactions || [];
+
+                if (transactions.length === 0) {
+                    historyContainer.innerHTML = '<div class="no-transactions">No transactions yet. Add your first transaction above!</div>';
+                    return;
+                }
+
+                const historyHTML = `
+                    <div class="transaction-list">
+                        ${transactions.map(txn => `
+                            <div class="transaction-item ${txn.transaction_type.toLowerCase()}">
+                                <div class="transaction-main">
+                                    <div class="transaction-ticker">${txn.ticker}</div>
+                                    <div class="transaction-type-badge ${txn.transaction_type.toLowerCase()}">${txn.transaction_type}</div>
+                                    <div class="transaction-amount">${txn.shares} shares @ $${txn.price_per_share.toFixed(2)}</div>
+                                    <div class="transaction-total">$${txn.total_amount.toFixed(2)}</div>
+                                </div>
+                                <div class="transaction-details">
+                                    <span class="transaction-date">${new Date(txn.transaction_date).toLocaleDateString()}</span>
+                                    ${txn.fees > 0 ? `<span class="transaction-fees">Fees: $${txn.fees.toFixed(2)}</span>` : ''}
+                                    ${txn.notes ? `<span class="transaction-notes">${txn.notes}</span>` : ''}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+
+                historyContainer.innerHTML = historyHTML;
+            } else {
+                historyContainer.innerHTML = '<div class="error">Failed to load transaction history</div>';
+            }
+        } catch (error) {
+            console.error('Error loading transaction history:', error);
+            historyContainer.innerHTML = '<div class="error">Error loading transaction history</div>';
+        }
+    }
+
+    async updateBuilderPortfolioSummary() {
+        const summaryContainer = document.getElementById('builder-portfolio-summary');
+
+        try {
+            const response = await api.request(`/database/portfolio/${this.currentPortfolioId}/categories-detailed`);
+
+            if (response.ok) {
+                const data = await response.json();
+
+                if (!data.categories || data.categories.length === 0) {
+                    summaryContainer.innerHTML = '<div class="empty-portfolio">No holdings yet. Add transactions to build your portfolio!</div>';
+                    return;
+                }
+
+                const totalValue = data.total_portfolio_value || 0;
+                const totalPositions = data.total_positions || 0;
+
+                // Calculate total cost basis
+                let totalCostBasis = 0;
+                data.categories.forEach(category => {
+                    totalCostBasis += category.total_cost_basis || 0;
+                });
+
+                const totalGainLoss = totalValue - totalCostBasis;
+                const totalGainLossPercent = totalCostBasis > 0 ? (totalGainLoss / totalCostBasis) * 100 : 0;
+                const gainLossColor = totalGainLoss >= 0 ? '#10b981' : '#ef4444';
+
+                const summaryHTML = `
+                    <div class="builder-summary-stats">
+                        <div class="builder-stat">
+                            <div class="stat-label">Total Value</div>
+                            <div class="stat-value">${formatCurrency(totalValue)}</div>
+                        </div>
+                        <div class="builder-stat">
+                            <div class="stat-label">Total Cost</div>
+                            <div class="stat-value">${formatCurrency(totalCostBasis)}</div>
+                        </div>
+                        <div class="builder-stat">
+                            <div class="stat-label">Gain/Loss</div>
+                            <div class="stat-value" style="color: ${gainLossColor}">
+                                ${formatCurrency(totalGainLoss)} (${totalGainLossPercent.toFixed(1)}%)
+                            </div>
+                        </div>
+                        <div class="builder-stat">
+                            <div class="stat-label">Positions</div>
+                            <div class="stat-value">${totalPositions}</div>
+                        </div>
+                    </div>
+                `;
+
+                summaryContainer.innerHTML = summaryHTML;
+            } else {
+                summaryContainer.innerHTML = '<div class="error">Failed to load portfolio summary</div>';
+            }
+        } catch (error) {
+            console.error('Error updating portfolio summary:', error);
+            summaryContainer.innerHTML = '<div class="error">Error loading portfolio summary</div>';
+        }
+    }
+
+    showLoading(message) {
+        // You can enhance this with a better loading indicator
+        console.log(message);
+    }
+
+    showSuccess(message) {
+        // You can enhance this with a better success notification
+        alert(message);
+    }
+
+    showError(message) {
+        // You can enhance this with a better error notification
+        alert(message);
     }
 
     backToComparisonSetup() {

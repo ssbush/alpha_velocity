@@ -35,6 +35,7 @@
                 <nav class="nav">
                     <button class="nav-btn active" data-view="dashboard">Dashboard</button>
                     <button class="nav-btn" data-view="portfolio">Portfolio</button>
+                    <button class="nav-btn" data-view="portfolio-builder">Builder</button>
                     <button class="nav-btn" data-view="categories">Categories</button>
                     <button class="nav-btn" data-view="watchlist">Watchlist</button>
                     <button class="nav-btn" data-view="search">Search</button>
@@ -154,6 +155,80 @@
                     </div>
 
                     <div class="portfolio-table" id="portfolio-table"></div>
+                </div>
+
+                <!-- Portfolio Builder View -->
+                <div id="portfolio-builder-view" class="view">
+                    <div class="view-header">
+                        <h2>Portfolio Builder</h2>
+                        <div class="builder-controls">
+                            <span class="builder-subtitle">Build your portfolio transaction by transaction</span>
+                        </div>
+                    </div>
+
+                    <!-- Transaction Entry Form -->
+                    <div class="section">
+                        <h3>Add Transaction</h3>
+                        <div class="transaction-form">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="transaction-ticker">Stock Ticker</label>
+                                    <input type="text" id="transaction-ticker" placeholder="e.g., AAPL" maxlength="10">
+                                </div>
+                                <div class="form-group">
+                                    <label for="transaction-type">Type</label>
+                                    <select id="transaction-type">
+                                        <option value="BUY">Buy</option>
+                                        <option value="SELL">Sell</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="transaction-shares">Shares</label>
+                                    <input type="number" id="transaction-shares" placeholder="Number of shares" min="1" step="1">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="transaction-price">Price per Share</label>
+                                    <input type="number" id="transaction-price" placeholder="0.00" min="0" step="0.01">
+                                </div>
+                                <div class="form-group">
+                                    <label for="transaction-date">Date</label>
+                                    <input type="date" id="transaction-date">
+                                </div>
+                                <div class="form-group">
+                                    <label for="transaction-fees">Fees (Optional)</label>
+                                    <input type="number" id="transaction-fees" placeholder="0.00" min="0" step="0.01">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group full-width">
+                                    <label for="transaction-notes">Notes (Optional)</label>
+                                    <input type="text" id="transaction-notes" placeholder="Optional notes about this transaction">
+                                </div>
+                            </div>
+                            <div class="form-actions">
+                                <button id="add-transaction-btn" class="primary-btn">Add Transaction</button>
+                                <button id="clear-form-btn" class="secondary-btn">Clear Form</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Portfolio Summary -->
+                    <div class="section">
+                        <h3>Portfolio Summary</h3>
+                        <div id="builder-portfolio-summary" class="portfolio-summary-builder">
+                            <div class="loading">Build your portfolio by adding transactions above</div>
+                        </div>
+                    </div>
+
+                    <!-- Transaction History -->
+                    <div class="section">
+                        <h3>Transaction History</h3>
+                        <div id="transaction-history" class="transaction-history">
+                            <div class="loading">No transactions yet</div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Categories View -->

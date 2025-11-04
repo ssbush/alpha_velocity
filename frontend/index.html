@@ -39,8 +39,19 @@
                     <button class="nav-btn" data-view="categories">Categories</button>
                     <button class="nav-btn" data-view="watchlist">Watchlist</button>
                     <button class="nav-btn" data-view="search">Search</button>
-                    <button class="nav-btn" data-view="compare">Compare</button>
                 </nav>
+                <div class="user-auth">
+                    <!-- Guest Section -->
+                    <div id="guest-section" class="auth-section">
+                        <button id="show-login-btn" class="auth-btn">Login</button>
+                        <button id="show-register-btn" class="auth-btn primary">Sign Up</button>
+                    </div>
+                    <!-- User Section -->
+                    <div id="user-section" class="auth-section" style="display: none;">
+                        <span class="user-greeting">Hello, <strong id="username-display"></strong>!</span>
+                        <button id="logout-btn" class="auth-btn">Logout</button>
+                    </div>
+                </div>
             </div>
         </header>
 
@@ -49,34 +60,53 @@
             <div class="container">
                 <!-- Dashboard View -->
                 <div id="dashboard-view" class="view active">
-                    <div class="view-header">
-                        <h2>Portfolio Overview</h2>
-                        <div class="stats-grid">
-                            <div class="stat-card">
-                                <div class="stat-value" id="total-value">--</div>
-                                <div class="stat-label">Total Value</div>
+                    <!-- Portfolio Dashboard (shown when logged in) -->
+                    <div id="portfolio-dashboard-section" class="section" style="display: none;">
+                        <div class="section-header">
+                            <h3>My Portfolios</h3>
+                        </div>
+                        <div id="portfolio-dashboard"></div>
+
+                        <!-- Selected Portfolio Details -->
+                        <div id="selected-portfolio-details" class="section" style="display: none; margin-top: 2rem;">
+                            <div class="section-header">
+                                <h3 id="selected-portfolio-name">Portfolio Holdings</h3>
                             </div>
-                            <div class="stat-card">
-                                <div class="stat-value" id="avg-score">--</div>
-                                <div class="stat-label">Avg Momentum</div>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-value" id="positions-count">--</div>
-                                <div class="stat-label">Positions</div>
-                            </div>
+                            <div id="selected-portfolio-holdings"></div>
                         </div>
                     </div>
 
-                    <div class="section">
-                        <h3>Top Momentum Stocks</h3>
-                        <div class="loading" id="top-momentum-loading">Loading...</div>
-                        <div class="momentum-grid" id="top-momentum-grid"></div>
-                    </div>
+                    <!-- Default view for non-logged-in users -->
+                    <div id="default-dashboard-section">
+                        <div class="view-header">
+                            <h2>Portfolio Overview</h2>
+                            <div class="stats-grid">
+                                <div class="stat-card">
+                                    <div class="stat-value" id="total-value">--</div>
+                                    <div class="stat-label">Total Value</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-value" id="avg-score">--</div>
+                                    <div class="stat-label">Avg Momentum</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-value" id="positions-count">--</div>
+                                    <div class="stat-label">Positions</div>
+                                </div>
+                            </div>
+                        </div>
 
-                    <div class="section">
-                        <h3>Portfolio Performance</h3>
-                        <div class="chart-container">
-                            <canvas id="trend-chart"></canvas>
+                        <div class="section">
+                            <h3>Top Momentum Stocks</h3>
+                            <div class="loading" id="top-momentum-loading">Loading...</div>
+                            <div class="momentum-grid" id="top-momentum-grid"></div>
+                        </div>
+
+                        <div class="section">
+                            <h3>Portfolio Performance</h3>
+                            <div class="chart-container">
+                                <canvas id="trend-chart"></canvas>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -162,6 +192,13 @@
                     <div class="view-header">
                         <h2>Portfolio Builder</h2>
                         <div class="builder-controls">
+                            <div class="portfolio-selector-wrapper">
+                                <label for="builder-portfolio-select">Select Portfolio:</label>
+                                <select id="builder-portfolio-select" class="portfolio-select">
+                                    <option value="">Loading portfolios...</option>
+                                </select>
+                                <button id="builder-new-portfolio-btn" class="btn-new-portfolio">+ New Portfolio</button>
+                            </div>
                             <span class="builder-subtitle">Build your portfolio transaction by transaction</span>
                         </div>
                     </div>
@@ -235,6 +272,9 @@
                 <div id="categories-view" class="view">
                     <div class="view-header">
                         <h2>Portfolio Categories</h2>
+                        <button class="btn-create-category" onclick="app.showCreateCategoryModal()">
+                            + Create Category
+                        </button>
                     </div>
                     <div class="loading" id="categories-loading">Loading categories...</div>
                     <div class="categories-grid" id="categories-grid"></div>
@@ -320,11 +360,86 @@
             <div class="spinner"></div>
             <div>Loading...</div>
         </div>
+
+        <!-- Portfolio Selector Modal -->
+        <div id="portfolio-selector-modal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <span class="close" id="close-portfolio-selector">&times;</span>
+                <div id="portfolio-selector-container"></div>
+            </div>
+        </div>
+
+        <!-- Authentication Modal -->
+        <div id="auth-modal" class="modal" style="display: none;">
+            <div class="modal-content auth-modal-content">
+                <span class="close" id="close-auth-modal">&times;</span>
+
+                <!-- Login Form -->
+                <div id="login-form" class="auth-form">
+                    <h2>Login to AlphaVelocity</h2>
+                    <form>
+                        <div class="form-group">
+                            <label for="login-username">Username or Email</label>
+                            <input type="text" id="login-username" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="login-password">Password</label>
+                            <input type="password" id="login-password" required>
+                        </div>
+                        <div id="login-error" class="error-message" style="display: none;"></div>
+                        <button type="submit" class="submit-btn">Login</button>
+                    </form>
+                    <p class="auth-switch">
+                        Don't have an account? <a href="#" id="switch-to-register">Sign up</a>
+                    </p>
+                </div>
+
+                <!-- Register Form -->
+                <div id="register-form" class="auth-form" style="display: none;">
+                    <h2>Create Account</h2>
+                    <form>
+                        <div class="form-group">
+                            <label for="register-username">Username *</label>
+                            <input type="text" id="register-username" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="register-email">Email *</label>
+                            <input type="email" id="register-email" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="register-password">Password *</label>
+                            <input type="password" id="register-password" required minlength="8">
+                        </div>
+                        <div class="form-group">
+                            <label for="register-confirm-password">Confirm Password *</label>
+                            <input type="password" id="register-confirm-password" required minlength="8">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="register-first-name">First Name</label>
+                                <input type="text" id="register-first-name">
+                            </div>
+                            <div class="form-group">
+                                <label for="register-last-name">Last Name</label>
+                                <input type="text" id="register-last-name">
+                            </div>
+                        </div>
+                        <div id="register-error" class="error-message" style="display: none;"></div>
+                        <button type="submit" class="submit-btn">Create Account</button>
+                    </form>
+                    <p class="auth-switch">
+                        Already have an account? <a href="#" id="switch-to-login">Login</a>
+                    </p>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="js/api.js"></script>
     <script src="js/charts.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/portfolio-manager.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>

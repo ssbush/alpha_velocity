@@ -14,7 +14,7 @@ from sqlalchemy import func, desc
 from database.config import db_config
 from models.database import (
     User, Portfolio, SecurityMaster, Category, Holding, Transaction,
-    MomentumScore, PriceHistory, PerformanceSnapshot
+    MomentumScore, PriceHistory, PerformanceSnapshot, PortfolioCategoryTarget
 )
 from services.momentum_engine import MomentumEngine
 from utils.data_providers import DataProvider
@@ -25,6 +25,23 @@ class DatabasePortfolioService:
     def __init__(self, momentum_engine: MomentumEngine = None):
         self.momentum_engine = momentum_engine or MomentumEngine()
         self.data_provider = DataProvider()
+
+    def get_portfolio_category_targets(self, portfolio_id: int, session: Session) -> Dict[int, Decimal]:
+        """Get portfolio-specific category targets, falling back to global defaults
+
+        Returns: Dict mapping category_id to target_allocation_pct
+        """
+        # First try to get portfolio-specific targets
+        targets = session.query(PortfolioCategoryTarget).filter_by(
+            portfolio_id=portfolio_id
+        ).all()
+
+        if targets:
+            return {t.category_id: t.target_allocation_pct for t in targets}
+
+        # Fall back to global category targets
+        categories = session.query(Category).filter_by(is_active=True).all()
+        return {c.id: c.target_allocation_pct for c in categories}
 
     def get_user_portfolios(self, user_id: int) -> List[Dict]:
         """Get all portfolios for a user"""
@@ -165,6 +182,26 @@ class DatabasePortfolioService:
                 session.add(security)
                 session.flush()
 
+            # Determine category for this ticker
+            # Look up in category_securities table
+            category_id = None
+            result = session.execute(
+                """
+                SELECT category_id FROM category_securities
+                WHERE security_id = :security_id
+                LIMIT 1
+                """,
+                {"security_id": security.id}
+            ).fetchone()
+
+            if result:
+                category_id = result[0]
+            else:
+                # Use "Uncategorized" as default (id=16)
+                uncategorized = session.query(Category).filter_by(name='Uncategorized').first()
+                if uncategorized:
+                    category_id = uncategorized.id
+
             # Create transaction
             total_amount = shares * Decimal(str(price_per_share))
             if transaction_type == 'SELL':
@@ -191,10 +228,11 @@ class DatabasePortfolioService:
             ).first()
 
             if not holding:
-                # Create new holding
+                # Create new holding with category
                 holding = Holding(
                     portfolio_id=portfolio_id,
                     security_id=security.id,
+                    category_id=category_id,
                     shares=Decimal(str(abs(shares))),
                     average_cost_basis=Decimal(str(price_per_share)),
                     total_cost_basis=abs(total_amount)

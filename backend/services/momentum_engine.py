@@ -314,7 +314,8 @@ class MomentumEngine:
                 'price_momentum': 0,
                 'technical_momentum': 0,
                 'fundamental_momentum': 0,
-                'relative_momentum': 0
+                'relative_momentum': 0,
+                'current_price': None
             }
             # Cache the insufficient data result too
             self._cache[cache_key] = (result, current_time)
@@ -346,6 +347,9 @@ class MomentumEngine:
         else:
             rating = 'Sell'
 
+        # Get current price from historical data
+        current_price = float(hist_data['Close'].iloc[-1]) if hist_data is not None and not hist_data.empty else None
+
         result = {
             'ticker': ticker,
             'composite_score': round(composite_score, 1),
@@ -353,7 +357,8 @@ class MomentumEngine:
             'price_momentum': round(price_momentum, 1),
             'technical_momentum': round(technical_momentum, 1),
             'fundamental_momentum': round(fundamental_momentum, 1),
-            'relative_momentum': round(relative_momentum, 1)
+            'relative_momentum': round(relative_momentum, 1),
+            'current_price': current_price
         }
 
         # Cache the result

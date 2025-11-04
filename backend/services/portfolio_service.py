@@ -275,3 +275,100 @@ class PortfolioService:
             category_allocation[category_name] = category_value / total_portfolio_value if total_portfolio_value > 0 else 0
 
         return category_allocation
+
+    def get_portfolio_by_categories(self, portfolio: Dict[str, int]) -> Dict:
+        """
+        Group portfolio holdings by category with actual vs target allocation percentages
+
+        Parameters:
+        - portfolio: dict with ticker: shares mapping
+
+        Returns:
+        - Dict with categories, holdings grouped by category, and allocation info
+        """
+        # Get current prices and calculate values
+        prices_data = {}
+        total_portfolio_value = 0
+        position_values = {}
+
+        for ticker, shares in portfolio.items():
+            try:
+                hist_data, _ = self.data_provider.get_stock_data(ticker, '1d')
+                if hist_data is not None and not hist_data.empty:
+                    price = hist_data['Close'].iloc[-1]
+                    market_value = shares * price
+                    prices_data[ticker] = price
+                    position_values[ticker] = market_value
+                    total_portfolio_value += market_value
+                else:
+                    prices_data[ticker] = 0
+                    position_values[ticker] = 0
+            except Exception as e:
+                print(f"Error fetching price for {ticker}: {e}")
+                prices_data[ticker] = 0
+                position_values[ticker] = 0
+
+        # Group holdings by category
+        categorized_holdings = {}
+        category_totals = {}
+
+        for category_name, category_info in self.portfolio_categories.items():
+            category_tickers = set(category_info['tickers'])
+            category_holdings = []
+            category_value = 0
+
+            for ticker, shares in portfolio.items():
+                if ticker in category_tickers:
+                    price = prices_data.get(ticker, 0)
+                    market_value = position_values.get(ticker, 0)
+                    percentage = (market_value / total_portfolio_value * 100) if total_portfolio_value > 0 else 0
+                    category_value += market_value
+
+                    # Get momentum score
+                    momentum_result = self.momentum_engine.calculate_momentum_score(ticker)
+
+                    category_holdings.append({
+                        'ticker': ticker,
+                        'shares': shares,
+                        'price': f"${price:.2f}",
+                        'market_value': f"${market_value:,.2f}",
+                        'portfolio_percent': f"{percentage:.1f}%",
+                        'momentum_score': momentum_result['composite_score'],
+                        'rating': momentum_result['rating']
+                    })
+
+            if category_holdings:
+                # Sort holdings by momentum score
+                category_holdings.sort(key=lambda x: x['momentum_score'], reverse=True)
+
+                actual_allocation = (category_value / total_portfolio_value) if total_portfolio_value > 0 else 0
+                target_allocation = category_info['target_allocation']
+
+                categorized_holdings[category_name] = {
+                    'name': category_name,
+                    'holdings': category_holdings,
+                    'target_allocation': target_allocation,
+                    'actual_allocation': actual_allocation,
+                    'total_value': category_value,
+                    'benchmark': category_info.get('benchmark', 'N/A')
+                }
+
+                category_totals[category_name] = category_value
+
+        # Calculate overall portfolio stats
+        avg_momentum_score = 0
+        total_positions = 0
+        for cat_data in categorized_holdings.values():
+            for holding in cat_data['holdings']:
+                avg_momentum_score += holding['momentum_score']
+                total_positions += 1
+
+        if total_positions > 0:
+            avg_momentum_score /= total_positions
+
+        return {
+            'total_value': total_portfolio_value,
+            'average_momentum_score': avg_momentum_score,
+            'number_of_positions': total_positions,
+            'categories': categorized_holdings
+        }

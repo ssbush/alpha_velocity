@@ -6,10 +6,22 @@ class AlphaVelocityApp {
         this.databaseMode = false; // Enable database-backed portfolio management
         this.currentPortfolioId = 1; // Default portfolio ID for database mode
         this.customPortfolio = {};
+        this.authManager = null; // Will be initialized in init()
         this.init();
     }
 
     init() {
+        // Initialize auth manager
+        this.authManager = new AuthManager('http://localhost:8000');
+        this.authManager.initAuthUI();
+        this.authManager.setupEventListeners();
+
+        // Initialize portfolio manager
+        this.portfolioManager = new PortfolioManager('http://localhost:8000', this.authManager);
+
+        // Set auth manager on API instance
+        api.setAuthManager(this.authManager);
+
         this.setupEventListeners();
         this.setupMobileOptimizations();
         this.loadFromLocalStorage();
@@ -205,6 +217,11 @@ class AlphaVelocityApp {
             // Check database availability
             await this.checkDatabaseMode();
 
+            // Load user portfolio dashboard if logged in
+            if (this.authManager && this.authManager.isLoggedIn()) {
+                await this.loadUserPortfolioDashboard();
+            }
+
             // Load dashboard data
             await Promise.all([
                 this.loadPortfolioSummary(),
@@ -213,6 +230,267 @@ class AlphaVelocityApp {
             ]);
         } catch (error) {
             this.showError('Failed to connect to API. Please ensure the backend server is running.');
+        }
+    }
+
+    async loadUserPortfolioDashboard() {
+        const section = document.getElementById('portfolio-dashboard-section');
+        const defaultSection = document.getElementById('default-dashboard-section');
+
+        if (!section) {
+            console.error('Portfolio dashboard section not found');
+            return;
+        }
+
+        try {
+            section.style.display = 'block';
+            if (defaultSection) defaultSection.style.display = 'none';
+
+            await this.portfolioManager.renderPortfolioDashboard('portfolio-dashboard');
+
+            // Load selected portfolio holdings if one is selected
+            const selectedId = this.portfolioManager.getSelectedPortfolioId();
+            if (selectedId) {
+                await this.loadSelectedPortfolioHoldings(selectedId);
+            }
+        } catch (error) {
+            console.error('Error loading user portfolio dashboard:', error);
+            if (section) {
+                section.innerHTML = `<div class="error">Failed to load portfolios: ${error.message}</div>`;
+            }
+        }
+    }
+
+    async loadSelectedPortfolioHoldings(portfolioId) {
+        const detailsSection = document.getElementById('selected-portfolio-details');
+        const holdingsContainer = document.getElementById('selected-portfolio-holdings');
+        const portfolioNameHeader = document.getElementById('selected-portfolio-name');
+
+        if (!detailsSection || !holdingsContainer) return;
+
+        try {
+            // Get portfolio details
+            const portfolioResult = await this.portfolioManager.getPortfolio(portfolioId);
+            if (!portfolioResult.success) {
+                console.error('Failed to get portfolio:', portfolioResult.error);
+                detailsSection.style.display = 'none';
+                return;
+            }
+
+            const portfolio = portfolioResult.portfolio;
+            console.log('Portfolio loaded:', portfolio);
+
+            // Update header with portfolio name and Edit Targets button
+            if (portfolioNameHeader) {
+                portfolioNameHeader.innerHTML = `
+                    ${portfolio.name} - Holdings
+                    <button class="btn-edit-targets" onclick="app.showEditTargetsModal(${portfolioId})">
+                        Edit Targets
+                    </button>
+                `;
+            }
+
+            // Get holdings
+            const holdings = portfolio.holdings || [];
+
+            // Debug: Log holdings data to check category field
+            console.log('Portfolio holdings data:', holdings);
+            if (holdings.length > 0) {
+                console.log('Sample holding with category:', holdings[0]);
+            }
+
+            if (holdings.length === 0) {
+                detailsSection.style.display = 'block';
+                holdingsContainer.innerHTML = `
+                    <div class="empty-state">
+                        <p>No holdings in this portfolio yet.</p>
+                        <p>Go to the <strong>Builder</strong> tab to add transactions.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Fetch momentum scores and current prices for all holdings
+            const momentumScores = {};
+            const currentPrices = {};
+            await Promise.all(holdings.map(async (h) => {
+                try {
+                    const score = await api.getMomentumScore(h.ticker);
+                    momentumScores[h.ticker] = score;
+                    // Extract current price from momentum data
+                    if (score && score.current_price) {
+                        currentPrices[h.ticker] = score.current_price;
+                    }
+                } catch (error) {
+                    console.warn(`Failed to fetch momentum score for ${h.ticker}:`, error);
+                }
+            }));
+
+            // Helper function to get score color
+            const getScoreColor = (score) => {
+                if (score >= 80) return '#10b981'; // Green
+                if (score >= 70) return '#3b82f6'; // Blue
+                if (score >= 60) return '#f59e0b'; // Yellow
+                if (score >= 50) return '#ef4444'; // Orange
+                return '#dc2626'; // Red
+            };
+
+            // Helper function to get rating color
+            const getRatingColor = (rating) => {
+                const colors = {
+                    'Strong Buy': '#10b981',
+                    'Buy': '#3b82f6',
+                    'Hold': '#f59e0b',
+                    'Weak Hold': '#ef4444',
+                    'Sell': '#dc2626'
+                };
+                return colors[rating] || '#6b7280';
+            };
+
+            // Get portfolio-specific category targets
+            const targetsResponse = await api.getPortfolioCategoryTargets(portfolioId);
+            const categoryMap = {};
+            targetsResponse.targets.forEach(target => {
+                categoryMap[target.category_name] = {
+                    target_allocation: target.target_allocation_pct / 100,  // Convert to decimal
+                    benchmark: target.benchmark
+                };
+            });
+
+            // Group holdings by category and calculate values (using current prices)
+            const holdingsByCategory = {};
+            let totalPortfolioValue = 0;
+
+            holdings.forEach(h => {
+                const category = h.category || 'Uncategorized';
+                if (!holdingsByCategory[category]) {
+                    holdingsByCategory[category] = {
+                        holdings: [],
+                        totalValue: 0
+                    };
+                }
+                // Use current price if available, otherwise fall back to cost basis
+                const currentPrice = currentPrices[h.ticker];
+                const holdingValue = currentPrice ? currentPrice * h.shares : (h.average_cost_basis || 0) * h.shares;
+                holdingsByCategory[category].holdings.push(h);
+                holdingsByCategory[category].totalValue += holdingValue;
+                totalPortfolioValue += holdingValue;
+            });
+
+            // Display holdings grouped by category
+            detailsSection.style.display = 'block';
+            let holdingsHTML = '';
+
+            // Sort categories by total value (descending)
+            const sortedCategories = Object.keys(holdingsByCategory).sort((a, b) => {
+                return holdingsByCategory[b].totalValue - holdingsByCategory[a].totalValue;
+            });
+
+            sortedCategories.forEach(categoryName => {
+                const categoryData = holdingsByCategory[categoryName];
+                const categoryInfo = categoryMap[categoryName] || { target_allocation: 0 };
+                const actualAllocation = totalPortfolioValue > 0 ? categoryData.totalValue / totalPortfolioValue : 0;
+                const targetAllocation = categoryInfo.target_allocation;
+
+                const actualPercent = (actualAllocation * 100).toFixed(1);
+                const targetPercent = (targetAllocation * 100).toFixed(1);
+                const isOverweight = actualAllocation > targetAllocation;
+                const isUnderweight = actualAllocation < targetAllocation && targetAllocation > 0;
+
+                let allocationClass = '';
+                let allocationIndicator = '';
+                if (isOverweight) {
+                    allocationClass = 'overweight';
+                    allocationIndicator = '▲';
+                } else if (isUnderweight) {
+                    allocationClass = 'underweight';
+                    allocationIndicator = '▼';
+                }
+
+                holdingsHTML += `
+                    <div class="category-section">
+                        <div class="category-header">
+                            <h3>${categoryName}</h3>
+                            <div class="category-allocation">
+                                <span class="allocation-label">Allocation:</span>
+                                <span class="allocation-actual ${allocationClass}">${actualPercent}%</span>
+                                <span class="allocation-separator">/</span>
+                                <span class="allocation-target">${targetPercent}%</span>
+                                ${allocationIndicator ? `<span class="allocation-indicator ${allocationClass}">${allocationIndicator}</span>` : ''}
+                            </div>
+                        </div>
+                        <div class="holdings-table-wrapper">
+                            <table class="holdings-table">
+                                <thead>
+                                    <tr>
+                                        <th>Ticker</th>
+                                        <th>Company</th>
+                                        <th>Shares</th>
+                                        <th>Avg Cost</th>
+                                        <th>Total Cost</th>
+                                        <th>Current Value</th>
+                                        <th>Gain/Loss</th>
+                                        <th>Momentum</th>
+                                        <th>Rating</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${categoryData.holdings.map(h => {
+                                        const momentum = momentumScores[h.ticker];
+                                        const score = momentum ? momentum.composite_score : null;
+                                        const rating = momentum ? momentum.rating : null;
+                                        const scoreColor = score ? getScoreColor(score) : '#6b7280';
+                                        const ratingColor = rating ? getRatingColor(rating) : '#6b7280';
+
+                                        // Calculate current value
+                                        const currentPrice = currentPrices[h.ticker];
+                                        const currentValue = currentPrice ? currentPrice * h.shares : null;
+                                        const costBasis = h.total_cost_basis || 0;
+                                        const gainLoss = currentValue ? currentValue - costBasis : null;
+                                        const gainLossPercent = (costBasis > 0 && gainLoss !== null) ? (gainLoss / costBasis) * 100 : null;
+                                        const gainLossColor = gainLoss !== null ? (gainLoss >= 0 ? '#10b981' : '#ef4444') : '#6b7280';
+
+                                        return `
+                                            <tr>
+                                                <td class="ticker-cell">${h.ticker}</td>
+                                                <td>${h.company_name || h.ticker}</td>
+                                                <td>${h.shares.toFixed(2)}</td>
+                                                <td>$${h.average_cost_basis ? h.average_cost_basis.toFixed(2) : '—'}</td>
+                                                <td>$${h.total_cost_basis ? h.total_cost_basis.toFixed(2) : '—'}</td>
+                                                <td>
+                                                    ${currentValue !== null ?
+                                                        `<strong>$${currentValue.toFixed(2)}</strong>`
+                                                        : '<span style="color: #6b7280;">—</span>'}
+                                                </td>
+                                                <td style="color: ${gainLossColor}; font-weight: 600;">
+                                                    ${gainLoss !== null ?
+                                                        `$${gainLoss.toFixed(2)} (${gainLossPercent.toFixed(1)}%)`
+                                                        : '<span style="color: #6b7280;">—</span>'}
+                                                </td>
+                                                <td>
+                                                    ${score !== null && score !== undefined ?
+                                                        `<span class="momentum-score" style="color: ${scoreColor}; font-weight: 600;">${Number(score).toFixed(1)}</span>`
+                                                        : '<span style="color: #6b7280;">—</span>'}
+                                                </td>
+                                                <td>
+                                                    ${rating ?
+                                                        `<span class="rating-badge" style="background: ${ratingColor}20; color: ${ratingColor}; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;">${rating}</span>`
+                                                        : '<span style="color: #6b7280;">—</span>'}
+                                                </td>
+                                            </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            });
+
+            holdingsContainer.innerHTML = holdingsHTML;
+        } catch (error) {
+            console.error('Error loading portfolio holdings:', error);
+            detailsSection.style.display = 'none';
         }
     }
 
@@ -264,8 +542,8 @@ class AlphaVelocityApp {
 
                 console.log('📊 Loaded portfolio from database:', holdings.holdings.length, 'holdings');
             } else {
-                // Use file-based portfolio analysis
-                portfolio = await api.getPortfolioAnalysis();
+                // Use file-based portfolio analysis (categorized)
+                portfolio = await api.getPortfolioAnalysisByCategories();
                 console.log('📊 Loaded portfolio from files');
             }
 
@@ -376,7 +654,7 @@ class AlphaVelocityApp {
 
             // Load both portfolio and categories data (file mode)
             const [portfolio, categories] = await Promise.all([
-                api.getPortfolioAnalysis(),
+                api.getPortfolioAnalysisByCategories(),
                 api.getCategories()
             ]);
 
@@ -646,24 +924,67 @@ class AlphaVelocityApp {
 
         try {
             loading.style.display = 'block';
-            const categories = await api.getCategories();
+            const response = await api.getAllCategoriesManagement();
+            const categories = response.categories;
 
             container.innerHTML = categories.map(category => `
-                <div class="category-card" data-category="${category.name}">
+                <div class="category-card" data-category="${category.name}" data-category-id="${category.id}">
                     <div class="category-header">
-                        <h3>${category.name}</h3>
-                        <span class="allocation">${formatPercentage(category.target_allocation * 100)}</span>
-                    </div>
-                    <div class="category-info">
-                        <p><strong>Benchmark:</strong> ${category.benchmark}</p>
-                        <p><strong>Tickers:</strong> ${category.tickers.length} stocks</p>
-                        <div class="ticker-list">
-                            ${category.tickers.slice(0, 6).join(', ')}${category.tickers.length > 6 ? '...' : ''}
+                        <div class="category-title-row">
+                            <h3>${category.name}</h3>
+                            <span class="allocation" title="Target allocation for this category">Target: ${formatPercentage(category.target_allocation_pct)}</span>
+                        </div>
+                        <div class="category-meta">
+                            <span class="meta-item"><strong>Benchmark:</strong> ${category.benchmark}</span>
+                            <span class="meta-divider">|</span>
+                            <span class="meta-item"><strong>Tickers:</strong> ${category.ticker_count}</span>
                         </div>
                     </div>
-                    <button class="analyze-btn" onclick="app.analyzCategory('${category.name}')">
-                        Analyze Category
-                    </button>
+                    <div class="category-info">
+                        <div class="ticker-list-container">
+                            <table class="ticker-momentum-table">
+                                <thead>
+                                    <tr>
+                                        <th>Ticker</th>
+                                        <th>Score</th>
+                                        <th>Rating</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${category.ticker_details.map(detail => {
+                                        const scoreColor = getScoreColor(detail.momentum_score || 0);
+                                        const ratingColor = getRatingColor(detail.rating || 'N/A');
+                                        return `
+                                            <tr>
+                                                <td class="ticker-cell">
+                                                    <strong>${detail.ticker}</strong>
+                                                </td>
+                                                <td class="score-cell">
+                                                    <span class="momentum-score" style="color: ${scoreColor}; font-weight: bold;">
+                                                        ${(detail.momentum_score || 0).toFixed(1)}
+                                                    </span>
+                                                </td>
+                                                <td class="rating-cell">
+                                                    <span class="rating-badge" style="background-color: ${ratingColor};">
+                                                        ${detail.rating || 'N/A'}
+                                                    </span>
+                                                </td>
+                                                <td class="action-cell">
+                                                    <button class="remove-ticker-btn-table" onclick="app.removeTicker(${category.id}, '${detail.ticker}')" title="Remove">×</button>
+                                                </td>
+                                            </tr>
+                                        `;
+                                    }).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="category-actions">
+                        <button class="add-ticker-btn" onclick="app.showAddTickerModal(${category.id}, '${category.name}')">
+                            + Add Ticker
+                        </button>
+                    </div>
                 </div>
             `).join('');
 
@@ -671,6 +992,356 @@ class AlphaVelocityApp {
         } catch (error) {
             loading.textContent = 'Failed to load categories';
             console.error('Failed to load categories:', error);
+        }
+    }
+
+    async showAddTickerModal(categoryId, categoryName) {
+        const modalHTML = `
+            <div class="modal-overlay" id="add-ticker-modal">
+                <div class="modal add-ticker-modal" onclick="event.stopPropagation()">
+                    <div class="modal-header">
+                        <h3>Add Ticker to ${categoryName}</h3>
+                        <button class="close-btn" onclick="document.getElementById('add-ticker-modal').remove()">×</button>
+                    </div>
+                    <div class="modal-content">
+                        <div class="input-group">
+                            <label for="new-ticker-input">Ticker Symbol:</label>
+                            <input type="text" id="new-ticker-input" placeholder="e.g., AAPL" maxlength="10" style="text-transform: uppercase;">
+                        </div>
+                        <div class="modal-actions">
+                            <button class="btn-secondary" onclick="document.getElementById('add-ticker-modal').remove()">Cancel</button>
+                            <button class="btn-primary" onclick="app.addTicker(${categoryId})">Add Ticker</button>
+                        </div>
+                        <div id="add-ticker-message" class="message"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        document.getElementById('new-ticker-input').focus();
+
+        // Allow Enter key to submit
+        document.getElementById('new-ticker-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                this.addTicker(categoryId);
+            }
+        });
+    }
+
+    async addTicker(categoryId) {
+        const input = document.getElementById('new-ticker-input');
+        const messageDiv = document.getElementById('add-ticker-message');
+        const ticker = input.value.trim().toUpperCase();
+
+        if (!ticker) {
+            messageDiv.innerHTML = '<span class="error">Please enter a ticker symbol</span>';
+            return;
+        }
+
+        try {
+            messageDiv.innerHTML = '<span class="info">Adding...</span>';
+            const result = await api.addTickerToCategory(categoryId, ticker);
+
+            if (result.success) {
+                messageDiv.innerHTML = '<span class="success">Ticker added successfully!</span>';
+                setTimeout(() => {
+                    document.getElementById('add-ticker-modal').remove();
+                    this.loadCategoriesData(); // Reload to show new ticker
+                }, 1000);
+            } else {
+                messageDiv.innerHTML = `<span class="error">${result.error || 'Failed to add ticker'}</span>`;
+            }
+        } catch (error) {
+            messageDiv.innerHTML = '<span class="error">Failed to add ticker. Please try again.</span>';
+            console.error('Error adding ticker:', error);
+        }
+    }
+
+    async removeTicker(categoryId, ticker) {
+        if (!confirm(`Remove ${ticker} from this category?`)) {
+            return;
+        }
+
+        try {
+            const result = await api.removeTickerFromCategory(categoryId, ticker);
+
+            if (result.success) {
+                // Remove the pill from UI
+                this.loadCategoriesData(); // Reload to update display
+            } else {
+                alert(result.error || 'Failed to remove ticker');
+            }
+        } catch (error) {
+            alert('Failed to remove ticker. Please try again.');
+            console.error('Error removing ticker:', error);
+        }
+    }
+
+    showCreateCategoryModal() {
+        const modalHTML = `
+            <div class="modal-overlay" id="create-category-modal">
+                <div class="modal create-category-modal" onclick="event.stopPropagation()">
+                    <div class="modal-header">
+                        <h3>Create New Category</h3>
+                        <button class="close-btn" onclick="document.getElementById('create-category-modal').remove()">×</button>
+                    </div>
+                    <div class="modal-content">
+                        <div class="input-group">
+                            <label for="category-name-input">Category Name: <span class="required">*</span></label>
+                            <input type="text" id="category-name-input" placeholder="e.g., Technology Giants" maxlength="100">
+                        </div>
+                        <div class="input-group">
+                            <label for="category-description-input">Description:</label>
+                            <textarea id="category-description-input" placeholder="Brief description of this category" rows="3"></textarea>
+                        </div>
+                        <div class="input-group">
+                            <label for="category-allocation-input">Target Allocation (%): <span class="required">*</span></label>
+                            <input type="number" id="category-allocation-input" placeholder="e.g., 15" min="0" max="100" step="0.1">
+                        </div>
+                        <div class="input-group">
+                            <label for="category-benchmark-input">Benchmark Ticker: <span class="required">*</span></label>
+                            <input type="text" id="category-benchmark-input" placeholder="e.g., SPY" maxlength="20" style="text-transform: uppercase;">
+                        </div>
+                        <div class="modal-actions">
+                            <button class="btn-secondary" onclick="document.getElementById('create-category-modal').remove()">Cancel</button>
+                            <button class="btn-primary" onclick="app.createCategory()">Create Category</button>
+                        </div>
+                        <div id="create-category-message" class="message"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHTML);
+        document.getElementById('category-name-input').focus();
+    }
+
+    async createCategory() {
+        const messageDiv = document.getElementById('create-category-message');
+
+        // Get form values
+        const name = document.getElementById('category-name-input').value.trim();
+        const description = document.getElementById('category-description-input').value.trim();
+        const allocationInput = document.getElementById('category-allocation-input').value.trim();
+        const benchmark = document.getElementById('category-benchmark-input').value.trim().toUpperCase();
+
+        // Validation
+        if (!name) {
+            messageDiv.innerHTML = '<span class="error">Category name is required</span>';
+            return;
+        }
+
+        if (!allocationInput || isNaN(allocationInput)) {
+            messageDiv.innerHTML = '<span class="error">Target allocation must be a number</span>';
+            return;
+        }
+
+        const targetAllocationPct = parseFloat(allocationInput);
+        if (targetAllocationPct < 0 || targetAllocationPct > 100) {
+            messageDiv.innerHTML = '<span class="error">Target allocation must be between 0 and 100</span>';
+            return;
+        }
+
+        if (!benchmark) {
+            messageDiv.innerHTML = '<span class="error">Benchmark ticker is required</span>';
+            return;
+        }
+
+        try {
+            messageDiv.innerHTML = '<span class="info">Creating category...</span>';
+            const result = await api.createCategory(name, description || '', targetAllocationPct, benchmark);
+
+            if (result.success) {
+                messageDiv.innerHTML = '<span class="success">Category created successfully!</span>';
+                setTimeout(() => {
+                    document.getElementById('create-category-modal').remove();
+                    this.loadCategoriesData(); // Reload categories to show new one
+                }, 1000);
+            } else {
+                messageDiv.innerHTML = `<span class="error">${result.error || 'Failed to create category'}</span>`;
+            }
+        } catch (error) {
+            messageDiv.innerHTML = '<span class="error">Failed to create category. Please try again.</span>';
+            console.error('Error creating category:', error);
+        }
+    }
+
+    async showEditTargetsModal(portfolioId) {
+        try {
+            // Fetch current targets (includes category info, so we don't need a separate call)
+            const targetsResponse = await api.getPortfolioCategoryTargets(portfolioId);
+            const targets = targetsResponse.targets;
+
+            // Use the targets array directly - it already has category names and IDs
+            const allCategories = targets.map(t => ({
+                id: t.category_id,
+                name: t.category_name,
+                target_allocation_pct: t.target_allocation_pct
+            }));
+
+            // Create a map of category_id -> target_pct
+            const targetMap = {};
+            targets.forEach(t => {
+                targetMap[t.category_id] = t.target_allocation_pct;
+            });
+
+            // Create modal element
+            const modal = document.createElement('div');
+            modal.className = 'modal modal-large';
+            modal.id = 'edit-targets-modal';
+            modal.style.display = 'flex';
+            modal.innerHTML = `
+                <div class="modal-content">
+                    <span class="close">&times;</span>
+                    <h2>Edit Category Targets</h2>
+                    <div class="form-section">
+                        <p class="form-help">Adjust target allocation percentages for each category in this portfolio</p>
+                        <div class="allocation-total-display">
+                            <span id="edit-allocation-total">Total: 0%</span>
+                        </div>
+                        <div class="allocation-grid" id="edit-allocation-inputs">
+                            ${allCategories.filter(cat => cat.name !== 'Uncategorized').map(cat => `
+                                <div class="allocation-item">
+                                    <label for="edit-alloc-${cat.id}">${cat.name}</label>
+                                    <div class="input-with-unit">
+                                        <input
+                                            type="number"
+                                            id="edit-alloc-${cat.id}"
+                                            data-category-id="${cat.id}"
+                                            min="0"
+                                            max="100"
+                                            step="0.1"
+                                            value="${(targetMap[cat.id] || 0).toFixed(1)}"
+                                            class="allocation-input">
+                                        <span class="unit">%</span>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    <div class="modal-actions">
+                        <button class="btn-secondary" id="reset-targets-btn">Reset to Defaults</button>
+                        <button class="submit-btn" id="save-targets-btn">Save Changes</button>
+                    </div>
+                    <div id="edit-targets-message" class="message"></div>
+                </div>
+            `;
+
+            document.body.appendChild(modal);
+
+            // Update total when allocations change
+            const updateTotal = () => {
+                const inputs = modal.querySelectorAll('.allocation-input');
+                let total = 0;
+                inputs.forEach(input => {
+                    total += parseFloat(input.value) || 0;
+                });
+                const totalEl = modal.querySelector('#edit-allocation-total');
+                totalEl.textContent = `Total: ${total.toFixed(1)}%`;
+
+                // Color code based on total
+                if (Math.abs(total - 100) < 0.1) {
+                    totalEl.style.color = '#10b981'; // Green at 100%
+                } else if (total > 100) {
+                    totalEl.style.color = '#ef4444'; // Red if over
+                } else {
+                    totalEl.style.color = '#f59e0b'; // Yellow if under
+                }
+            };
+
+            // Add event listeners to all inputs
+            modal.querySelectorAll('.allocation-input').forEach(input => {
+                input.addEventListener('input', updateTotal);
+            });
+
+            // Initialize total
+            updateTotal();
+
+            // Close modal
+            modal.querySelector('.close').addEventListener('click', () => {
+                modal.remove();
+            });
+
+            // Handle save
+            modal.querySelector('#save-targets-btn').addEventListener('click', async () => {
+                await this.savePortfolioTargets(portfolioId);
+            });
+
+            // Handle reset
+            modal.querySelector('#reset-targets-btn').addEventListener('click', async () => {
+                await this.resetToDefaultTargets(portfolioId);
+            });
+
+        } catch (error) {
+            console.error('Error showing edit targets modal:', error);
+            alert('Failed to load targets. Please try again.');
+        }
+    }
+
+    async savePortfolioTargets(portfolioId) {
+        const modal = document.getElementById('edit-targets-modal');
+        const messageDiv = document.getElementById('edit-targets-message');
+
+        if (!modal || !messageDiv) return;
+
+        try {
+            messageDiv.innerHTML = '<span class="info">Saving targets...</span>';
+
+            // Get all allocation inputs
+            const inputs = modal.querySelectorAll('.allocation-input');
+            const updates = [];
+
+            inputs.forEach(input => {
+                const categoryId = input.dataset.categoryId;
+                const targetPct = parseFloat(input.value) || 0;
+                updates.push(
+                    api.setPortfolioCategoryTarget(portfolioId, categoryId, targetPct)
+                );
+            });
+
+            await Promise.all(updates);
+
+            messageDiv.innerHTML = '<span class="success">Targets updated successfully!</span>';
+
+            setTimeout(() => {
+                modal.remove();
+                // Reload the portfolio holdings to show updated targets
+                this.loadSelectedPortfolioHoldings(portfolioId);
+            }, 1000);
+
+        } catch (error) {
+            console.error('Error saving targets:', error);
+            messageDiv.innerHTML = '<span class="error">Failed to save targets. Please try again.</span>';
+        }
+    }
+
+    async resetToDefaultTargets(portfolioId) {
+        if (!confirm('Reset this portfolio to use global default targets? This will overwrite any custom targets.')) {
+            return;
+        }
+
+        const modal = document.getElementById('edit-targets-modal');
+        const messageDiv = document.getElementById('edit-targets-message');
+
+        if (!modal || !messageDiv) return;
+
+        try {
+            messageDiv.innerHTML = '<span class="info">Resetting to defaults...</span>';
+
+            await api.resetPortfolioTargets(portfolioId);
+
+            messageDiv.innerHTML = '<span class="success">Reset to default targets!</span>';
+
+            setTimeout(() => {
+                modal.remove();
+                // Reload the portfolio holdings to show updated targets
+                this.loadSelectedPortfolioHoldings(portfolioId);
+            }, 1000);
+
+        } catch (error) {
+            console.error('Error resetting targets:', error);
+            messageDiv.innerHTML = '<span class="error">Failed to reset targets. Please try again.</span>';
         }
     }
 
@@ -999,7 +1670,7 @@ class AlphaVelocityApp {
 
         try {
             this.showLoading(true);
-            const analysis = await api.analyzeCustomPortfolio(this.customPortfolio);
+            const analysis = await api.analyzeCustomPortfolioByCategories(this.customPortfolio);
 
             // Update the portfolio display with custom data
             this.displayPortfolioAnalysis(analysis);
@@ -1013,7 +1684,13 @@ class AlphaVelocityApp {
     displayPortfolioAnalysis(analysis) {
         const container = document.getElementById('portfolio-table');
 
-        // Group by categories for custom portfolios too
+        // Check if analysis has categories (new format)
+        if (analysis.categories) {
+            this.displayCategorizedPortfolio(analysis);
+            return;
+        }
+
+        // Old format - single table for all holdings
         const portfolioHTML = `
             <div class="portfolio-summary">
                 <div class="summary-stats">
@@ -1076,6 +1753,109 @@ class AlphaVelocityApp {
 
         // Create momentum chart
         chartManager.createMomentumChart('momentum-chart', analysis.holdings);
+    }
+
+    displayCategorizedPortfolio(analysis) {
+        const container = document.getElementById('portfolio-table');
+
+        // Build HTML with portfolio summary and categorized tables
+        let portfolioHTML = `
+            <div class="portfolio-summary">
+                <div class="summary-stats">
+                    <div class="stat">
+                        <span class="stat-label">Total Value:</span>
+                        <span class="stat-value">${formatCurrency(analysis.total_value)}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Average Score:</span>
+                        <span class="stat-value" style="color: ${getScoreColor(analysis.average_momentum_score)}">${formatScore(analysis.average_momentum_score)}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Positions:</span>
+                        <span class="stat-value">${analysis.number_of_positions}</span>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Add each category as a separate table
+        for (const [categoryName, categoryData] of Object.entries(analysis.categories)) {
+            const actualPercent = (categoryData.actual_allocation * 100).toFixed(1);
+            const targetPercent = (categoryData.target_allocation * 100).toFixed(1);
+            const isOverweight = categoryData.actual_allocation > categoryData.target_allocation;
+            const isUnderweight = categoryData.actual_allocation < categoryData.target_allocation;
+
+            let allocationClass = '';
+            let allocationIndicator = '';
+            if (isOverweight) {
+                allocationClass = 'overweight';
+                allocationIndicator = '▲';
+            } else if (isUnderweight) {
+                allocationClass = 'underweight';
+                allocationIndicator = '▼';
+            }
+
+            portfolioHTML += `
+                <div class="category-section">
+                    <div class="category-header">
+                        <h3>${categoryData.name}</h3>
+                        <div class="category-allocation">
+                            <span class="allocation-label">Allocation:</span>
+                            <span class="allocation-actual ${allocationClass}">${actualPercent}%</span>
+                            <span class="allocation-separator">/</span>
+                            <span class="allocation-target">${targetPercent}%</span>
+                            <span class="allocation-indicator ${allocationClass}">${allocationIndicator}</span>
+                        </div>
+                    </div>
+                    <table class="data-table category-table">
+                        <thead>
+                            <tr>
+                                <th>Ticker</th>
+                                <th>Shares</th>
+                                <th>Price</th>
+                                <th>Market Value</th>
+                                <th>Portfolio %</th>
+                                <th>Momentum Score</th>
+                                <th>Rating</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${categoryData.holdings.map(holding => `
+                                <tr>
+                                    <td class="ticker-cell">${holding.ticker}</td>
+                                    <td class="data-cell">${holding.shares}</td>
+                                    <td class="data-cell">${holding.price}</td>
+                                    <td class="data-cell">${holding.market_value}</td>
+                                    <td class="data-cell">${holding.portfolio_percent}</td>
+                                    <td class="score-cell" style="color: ${getScoreColor(holding.momentum_score)}">
+                                        ${formatScore(holding.momentum_score)}
+                                    </td>
+                                    <td class="rating-cell" style="color: ${getRatingColor(holding.rating)}">
+                                        ${holding.rating}
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        container.innerHTML = portfolioHTML;
+
+        // Show and render charts
+        const chartsSection = document.getElementById('portfolio-charts');
+        chartsSection.style.display = 'block';
+
+        // Create charts with categorized data
+        chartManager.createAllocationChart('allocation-chart', analysis);
+
+        // Flatten holdings for momentum chart
+        const allHoldings = [];
+        for (const categoryData of Object.values(analysis.categories)) {
+            allHoldings.push(...categoryData.holdings);
+        }
+        chartManager.createMomentumChart('momentum-chart', allHoldings);
     }
 
     saveToLocalStorage() {
@@ -1808,6 +2588,11 @@ class AlphaVelocityApp {
 
     // Portfolio Builder functionality
     async loadPortfolioBuilderData() {
+        // Initialize portfolio selector if user is logged in
+        if (this.authManager && this.authManager.isLoggedIn()) {
+            await this.portfolioManager.initBuilderPortfolioSelector();
+        }
+
         // Set today's date as default
         const today = new Date().toISOString().split('T')[0];
         document.getElementById('transaction-date').value = today;
@@ -1887,13 +2672,14 @@ class AlphaVelocityApp {
         try {
             this.showLoading('Adding transaction...');
 
-            const result = await api.request(`/database/portfolio/${this.currentPortfolioId}/transaction`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(transactionData)
-            });
+            // Get selected portfolio ID
+            const portfolioId = this.portfolioManager.getSelectedPortfolioId();
+            if (!portfolioId) {
+                this.showError('Please select a portfolio first');
+                return;
+            }
+
+            const result = await api.addTransaction(portfolioId, transactionData);
 
             // If we get here, the request was successful (api.request already handled HTTP errors)
             this.showSuccess('Transaction added successfully!');
@@ -1922,45 +2708,81 @@ class AlphaVelocityApp {
     async loadTransactionHistory() {
         const historyContainer = document.getElementById('transaction-history');
 
+        // Get selected portfolio ID
+        const portfolioId = this.portfolioManager.getSelectedPortfolioId();
+        if (!portfolioId) {
+            historyContainer.innerHTML = '<div class="no-transactions">Please select a portfolio first.</div>';
+            return;
+        }
+
         try {
-            const response = await api.request(`/database/portfolio/${this.currentPortfolioId}/transactions?limit=50`);
+            const data = await api.getTransactionHistory(portfolioId, 100);
+            const transactions = data.transactions || [];
 
-            if (response.ok) {
-                const data = await response.json();
-                const transactions = data.transactions || [];
-
-                if (transactions.length === 0) {
-                    historyContainer.innerHTML = '<div class="no-transactions">No transactions yet. Add your first transaction above!</div>';
-                    return;
-                }
-
-                const historyHTML = `
-                    <div class="transaction-list">
-                        ${transactions.map(txn => `
-                            <div class="transaction-item ${txn.transaction_type.toLowerCase()}">
-                                <div class="transaction-main">
-                                    <div class="transaction-ticker">${txn.ticker}</div>
-                                    <div class="transaction-type-badge ${txn.transaction_type.toLowerCase()}">${txn.transaction_type}</div>
-                                    <div class="transaction-amount">${txn.shares} shares @ $${txn.price_per_share.toFixed(2)}</div>
-                                    <div class="transaction-total">$${txn.total_amount.toFixed(2)}</div>
-                                </div>
-                                <div class="transaction-details">
-                                    <span class="transaction-date">${new Date(txn.transaction_date).toLocaleDateString()}</span>
-                                    ${txn.fees > 0 ? `<span class="transaction-fees">Fees: $${txn.fees.toFixed(2)}</span>` : ''}
-                                    ${txn.notes ? `<span class="transaction-notes">${txn.notes}</span>` : ''}
-                                </div>
-                            </div>
-                        `).join('')}
-                    </div>
-                `;
-
-                historyContainer.innerHTML = historyHTML;
-            } else {
-                historyContainer.innerHTML = '<div class="error">Failed to load transaction history</div>';
+            if (transactions.length === 0) {
+                historyContainer.innerHTML = '<div class="no-transactions">No transactions yet. Add your first transaction above!</div>';
+                return;
             }
+
+            const historyHTML = `
+                <div class="transaction-list">
+                    ${transactions.map(txn => `
+                        <div class="transaction-item ${txn.transaction_type.toLowerCase()}" data-transaction-id="${txn.id}">
+                            <div class="transaction-main">
+                                <div class="transaction-ticker">${txn.ticker}</div>
+                                <div class="transaction-type-badge ${txn.transaction_type.toLowerCase()}">${txn.transaction_type}</div>
+                                <div class="transaction-amount">${txn.shares} shares @ $${txn.price_per_share.toFixed(2)}</div>
+                                <div class="transaction-total">$${txn.total_amount.toFixed(2)}</div>
+                            </div>
+                            <div class="transaction-details">
+                                <span class="transaction-date">${new Date(txn.transaction_date).toLocaleDateString()}</span>
+                                ${txn.fees > 0 ? `<span class="transaction-fees">Fees: $${txn.fees.toFixed(2)}</span>` : ''}
+                                ${txn.notes ? `<span class="transaction-notes">${txn.notes}</span>` : ''}
+                            </div>
+                            <div class="transaction-actions">
+                                <button class="btn-delete-transaction" onclick="window.app.deleteTransaction(${txn.id}, ${portfolioId})">Delete</button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+
+            historyContainer.innerHTML = historyHTML;
         } catch (error) {
             console.error('Error loading transaction history:', error);
             historyContainer.innerHTML = '<div class="error">Error loading transaction history</div>';
+        }
+    }
+
+    async deleteTransaction(transactionId, portfolioId) {
+        if (!confirm('Are you sure you want to delete this transaction? This will update your portfolio holdings.')) {
+            return;
+        }
+
+        try {
+            this.showLoading('Deleting transaction...');
+            console.log('Deleting transaction:', transactionId, 'from portfolio:', portfolioId);
+            const result = await api.deleteTransaction(portfolioId, transactionId);
+            console.log('Delete result:', result);
+            this.showSuccess('Transaction deleted successfully!');
+
+            // Reload transaction history and portfolio summary
+            await this.loadTransactionHistory();
+            await this.updateBuilderPortfolioSummary();
+
+            // Also refresh Dashboard holdings if they're being displayed
+            const selectedPortfolioDetails = document.getElementById('selected-portfolio-details');
+            if (selectedPortfolioDetails && selectedPortfolioDetails.style.display !== 'none') {
+                await this.loadSelectedPortfolioHoldings(portfolioId);
+            }
+
+            // Refresh portfolio dashboard if visible
+            if (this.portfolioManager) {
+                await this.portfolioManager.renderPortfolioDashboard('portfolio-dashboard');
+            }
+        } catch (error) {
+            console.error('Error deleting transaction:', error);
+            this.showError(`Failed to delete transaction: ${error.message}`);
         }
     }
 

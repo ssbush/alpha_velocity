@@ -2,17 +2,29 @@
 class AlphaVelocityAPI {
     constructor(baseURL = 'http://localhost:8000') {
         this.baseURL = baseURL;
+        this.authManager = null;
+    }
+
+    setAuthManager(authManager) {
+        this.authManager = authManager;
     }
 
     async request(endpoint, options = {}) {
         const url = `${this.baseURL}${endpoint}`;
 
+        // Add auth header if available
+        const headers = {
+            'Content-Type': 'application/json',
+            ...options.headers
+        };
+
+        if (this.authManager && this.authManager.isLoggedIn()) {
+            Object.assign(headers, this.authManager.getAuthHeader());
+        }
+
         try {
             const response = await fetch(url, {
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...options.headers
-                },
+                headers,
                 ...options
             });
 
@@ -42,6 +54,19 @@ class AlphaVelocityAPI {
         return this.request('/portfolio/analysis');
     }
 
+    // Get portfolio analysis grouped by categories
+    async getPortfolioAnalysisByCategories() {
+        return this.request('/portfolio/analysis/by-categories');
+    }
+
+    // Analyze custom portfolio grouped by categories
+    async analyzeCustomPortfolioByCategories(portfolio) {
+        return this.request('/portfolio/analyze/by-categories', {
+            method: 'POST',
+            body: JSON.stringify({ holdings: portfolio })
+        });
+    }
+
     // Get all categories
     async getCategories() {
         return this.request('/categories');
@@ -51,6 +76,45 @@ class AlphaVelocityAPI {
     async getCategoryAnalysis(categoryName) {
         const encoded = encodeURIComponent(categoryName);
         return this.request(`/categories/${encoded}/analysis`);
+    }
+
+    // Category Management API methods
+    async getAllCategoriesManagement() {
+        return this.request('/categories/management/all');
+    }
+
+    async getCategoryDetails(categoryId) {
+        return this.request(`/categories/management/${categoryId}`);
+    }
+
+    async addTickerToCategory(categoryId, ticker) {
+        return this.request(`/categories/management/${categoryId}/tickers?ticker=${ticker}`, {
+            method: 'POST'
+        });
+    }
+
+    async removeTickerFromCategory(categoryId, ticker) {
+        return this.request(`/categories/management/${categoryId}/tickers/${ticker}`, {
+            method: 'DELETE'
+        });
+    }
+
+    async createCategory(name, description, targetAllocationPct, benchmarkTicker) {
+        return this.request(`/categories/management/create?name=${encodeURIComponent(name)}&description=${encodeURIComponent(description)}&target_allocation_pct=${targetAllocationPct}&benchmark_ticker=${benchmarkTicker}`, {
+            method: 'POST'
+        });
+    }
+
+    async updateCategory(categoryId, updates) {
+        const params = new URLSearchParams();
+        if (updates.name) params.append('name', updates.name);
+        if (updates.description) params.append('description', updates.description);
+        if (updates.target_allocation_pct !== undefined) params.append('target_allocation_pct', updates.target_allocation_pct);
+        if (updates.benchmark_ticker) params.append('benchmark_ticker', updates.benchmark_ticker);
+
+        return this.request(`/categories/management/${categoryId}?${params.toString()}`, {
+            method: 'PUT'
+        });
     }
 
     // Get top momentum stocks
@@ -96,6 +160,25 @@ class AlphaVelocityAPI {
         return this.request(`/database/portfolio/${portfolioId}/holdings`);
     }
 
+    // Get portfolio-specific category targets
+    async getPortfolioCategoryTargets(portfolioId) {
+        return this.request(`/database/portfolio/${portfolioId}/category-targets`);
+    }
+
+    // Set portfolio-specific category target
+    async setPortfolioCategoryTarget(portfolioId, categoryId, targetPct) {
+        return this.request(`/database/portfolio/${portfolioId}/category-targets?category_id=${categoryId}&target_pct=${targetPct}`, {
+            method: 'POST'
+        });
+    }
+
+    // Reset portfolio to use global defaults
+    async resetPortfolioTargets(portfolioId) {
+        return this.request(`/database/portfolio/${portfolioId}/reset-targets`, {
+            method: 'POST'
+        });
+    }
+
     // Get portfolio category analysis from database
     async getPortfolioCategoryAnalysis(portfolioId) {
         return this.request(`/database/portfolio/${portfolioId}/categories`);
@@ -106,17 +189,32 @@ class AlphaVelocityAPI {
         return this.request(`/database/portfolio/${portfolioId}/categories-detailed`);
     }
 
-    // Add transaction to portfolio
+    // Add transaction to portfolio (authenticated)
     async addTransaction(portfolioId, transactionData) {
-        return this.request(`/database/portfolio/${portfolioId}/transaction`, {
-            method: 'POST',
-            body: JSON.stringify(transactionData)
+        const params = new URLSearchParams();
+        params.append('ticker', transactionData.ticker);
+        params.append('transaction_type', transactionData.transaction_type);
+        params.append('shares', transactionData.shares);
+        params.append('price_per_share', transactionData.price_per_share);
+        params.append('transaction_date', transactionData.transaction_date);
+        if (transactionData.fees) params.append('fees', transactionData.fees);
+        if (transactionData.notes) params.append('notes', transactionData.notes);
+
+        return this.request(`/user/portfolios/${portfolioId}/transactions?${params}`, {
+            method: 'POST'
         });
     }
 
-    // Get transaction history
+    // Get transaction history (authenticated)
     async getTransactionHistory(portfolioId, limit = 50) {
-        return this.request(`/database/portfolio/${portfolioId}/transactions?limit=${limit}`);
+        return this.request(`/user/portfolios/${portfolioId}/transactions?limit=${limit}`);
+    }
+
+    // Delete transaction (authenticated)
+    async deleteTransaction(portfolioId, transactionId) {
+        return this.request(`/user/portfolios/${portfolioId}/transactions/${transactionId}`, {
+            method: 'DELETE'
+        });
     }
 
     // Run database migration

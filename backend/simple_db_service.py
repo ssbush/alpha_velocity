@@ -18,8 +18,8 @@ def get_db_service():
         import sys
         sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
 
-        from database.config import db_config
-        from models.database import User, Portfolio, SecurityMaster, Category, Holding, Transaction
+        from .database.config import db_config
+        from .models.database import User, Portfolio, SecurityMaster, Category, Holding, Transaction
 
         class SimpleDatabaseService:
             """Simple database service for API endpoints"""

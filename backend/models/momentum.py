@@ -10,6 +10,7 @@ class MomentumScore(BaseModel):
     technical_momentum: float
     fundamental_momentum: float
     relative_momentum: float
+    current_price: Optional[float] = None
 
 class StockData(BaseModel):
     """Model for basic stock data"""

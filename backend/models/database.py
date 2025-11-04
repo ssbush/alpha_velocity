@@ -57,6 +57,7 @@ class Portfolio(Base):
     performance_snapshots = relationship("PerformanceSnapshot", back_populates="portfolio", cascade="all, delete-orphan")
     comparisons_as_base = relationship("PortfolioComparison", foreign_keys="PortfolioComparison.base_portfolio_id", back_populates="base_portfolio")
     comparisons_as_compared = relationship("PortfolioComparison", foreign_keys="PortfolioComparison.compared_portfolio_id", back_populates="compared_portfolio")
+    category_targets = relationship("PortfolioCategoryTarget", back_populates="portfolio", cascade="all, delete-orphan")
 
     __table_args__ = (
         UniqueConstraint('user_id', 'name', name='unique_portfolio_name_per_user'),
@@ -102,16 +103,41 @@ class Category(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(100), unique=True, nullable=False)
     description = Column(Text)
-    target_allocation_pct = Column(Numeric(5, 2))  # Target allocation percentage
+    target_allocation_pct = Column(Numeric(5, 2))  # Target allocation percentage (global default)
     benchmark_ticker = Column(String(20))
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=func.now(), nullable=False)
 
     # Relationships
     holdings = relationship("Holding", back_populates="category")
+    portfolio_targets = relationship("PortfolioCategoryTarget", back_populates="category")
 
     def __repr__(self):
         return f"<Category(name='{self.name}', target_allocation={self.target_allocation_pct}%)>"
+
+class PortfolioCategoryTarget(Base):
+    """Portfolio-specific category target allocations"""
+    __tablename__ = 'portfolio_category_targets'
+
+    id = Column(Integer, primary_key=True)
+    portfolio_id = Column(Integer, ForeignKey('portfolios.id'), nullable=False)
+    category_id = Column(Integer, ForeignKey('categories.id'), nullable=False)
+    target_allocation_pct = Column(Numeric(5, 2), nullable=False)
+    created_at = Column(DateTime, default=func.now(), nullable=False)
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    portfolio = relationship("Portfolio", back_populates="category_targets")
+    category = relationship("Category", back_populates="portfolio_targets")
+
+    __table_args__ = (
+        UniqueConstraint('portfolio_id', 'category_id', name='unique_portfolio_category_target'),
+        Index('idx_portfolio_targets_portfolio', 'portfolio_id'),
+        Index('idx_portfolio_targets_category', 'category_id'),
+    )
+
+    def __repr__(self):
+        return f"<PortfolioCategoryTarget(portfolio_id={self.portfolio_id}, category_id={self.category_id}, target={self.target_allocation_pct}%)>"
 
 class Holding(Base):
     """Current portfolio holdings with category assignments"""

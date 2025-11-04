@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List
 
@@ -6,6 +6,7 @@ from .services.momentum_engine import MomentumEngine
 from .services.portfolio_service import PortfolioService
 from .services.comparison_service import ComparisonService
 from .services.daily_scheduler import initialize_scheduler, get_scheduler
+from .services.category_service import CategoryService
 from .models.momentum import MomentumScore
 from .models.portfolio import (
     PortfolioAnalysis, CategoryInfo, CategoryAnalysis,
@@ -51,12 +52,23 @@ comparison_service = ComparisonService(portfolio_service)
 
 # Database services (optional, loaded on demand)
 try:
+    from .database.config import db_config
+    # Test if database is available
+    DATABASE_AVAILABLE = db_config.test_connection()
+    if DATABASE_AVAILABLE:
+        print("✅ Database connection successful - User authentication enabled")
+    else:
+        print("⚠️  Database connection failed - Running in file mode only")
+except Exception as e:
+    print(f"⚠️  Database initialization failed: {e}")
+    DATABASE_AVAILABLE = False
+
+# Keep simple_db_service for legacy endpoints
+try:
     from .simple_db_service import get_database_service
     db_service = get_database_service()
-    DATABASE_AVAILABLE = db_service is not None
-except ImportError as e:
-    print(f"Database import failed: {e}")
-    DATABASE_AVAILABLE = False
+except Exception as e:
+    print(f"Database service initialization failed: {e}")
     db_service = None
 
 # Get all portfolio tickers for caching
@@ -163,6 +175,30 @@ async def analyze_custom_portfolio(portfolio: Portfolio):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error analyzing custom portfolio: {str(e)}")
 
+@app.get("/portfolio/analysis/by-categories")
+async def analyze_portfolio_by_categories():
+    """Analyze default portfolio with holdings grouped by categories"""
+    try:
+        portfolio = DEFAULT_PORTFOLIO
+        result = portfolio_service.get_portfolio_by_categories(portfolio)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error analyzing portfolio by categories: {str(e)}")
+
+@app.post("/portfolio/analyze/by-categories")
+async def analyze_custom_portfolio_by_categories(portfolio: Portfolio):
+    """Analyze custom portfolio with holdings grouped by categories"""
+    try:
+        if not portfolio.holdings:
+            raise HTTPException(status_code=400, detail="Portfolio cannot be empty")
+
+        result = portfolio_service.get_portfolio_by_categories(portfolio.holdings)
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error analyzing custom portfolio by categories: {str(e)}")
+
 @app.get("/categories", response_model=List[CategoryInfo])
 async def get_categories():
     """Get all portfolio categories"""
@@ -228,6 +264,113 @@ async def get_watchlist(min_score: float = 70.0):
         return watchlist
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating watchlist: {str(e)}")
+
+# ========================================
+# CATEGORY MANAGEMENT ENDPOINTS
+# ========================================
+
+@app.get("/categories/management/all")
+async def get_all_categories_management():
+    """Get all categories with ticker details from database"""
+    try:
+        category_service = CategoryService()
+        categories = category_service.get_all_categories()
+        return {
+            'success': True,
+            'categories': categories,
+            'count': len(categories)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching categories: {str(e)}")
+
+@app.get("/categories/management/{category_id}")
+async def get_category_details(category_id: int):
+    """Get details for a specific category"""
+    try:
+        category_service = CategoryService()
+        category = category_service.get_category_by_id(category_id)
+        if not category:
+            raise HTTPException(status_code=404, detail="Category not found")
+        return category
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching category: {str(e)}")
+
+@app.post("/categories/management/{category_id}/tickers")
+async def add_ticker_to_category(category_id: int, ticker: str):
+    """Add a ticker to a category"""
+    try:
+        if not ticker or len(ticker) > 20:
+            raise HTTPException(status_code=400, detail="Invalid ticker symbol")
+
+        category_service = CategoryService()
+        result = category_service.add_ticker_to_category(category_id, ticker.upper())
+
+        if not result.get('success'):
+            raise HTTPException(status_code=400, detail=result.get('error', 'Failed to add ticker'))
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error adding ticker: {str(e)}")
+
+@app.delete("/categories/management/{category_id}/tickers/{ticker}")
+async def remove_ticker_from_category(category_id: int, ticker: str):
+    """Remove a ticker from a category"""
+    try:
+        category_service = CategoryService()
+        result = category_service.remove_ticker_from_category(category_id, ticker.upper())
+
+        if not result.get('success'):
+            raise HTTPException(status_code=400, detail=result.get('error', 'Failed to remove ticker'))
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error removing ticker: {str(e)}")
+
+@app.post("/categories/management/create")
+async def create_category(name: str, description: str, target_allocation_pct: float, benchmark_ticker: str):
+    """Create a new category"""
+    try:
+        if not name or len(name) > 100:
+            raise HTTPException(status_code=400, detail="Invalid category name")
+
+        if target_allocation_pct < 0 or target_allocation_pct > 100:
+            raise HTTPException(status_code=400, detail="Target allocation must be between 0 and 100")
+
+        category_service = CategoryService()
+        result = category_service.create_category(name, description, target_allocation_pct, benchmark_ticker)
+
+        if not result.get('success'):
+            raise HTTPException(status_code=400, detail=result.get('error', 'Failed to create category'))
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating category: {str(e)}")
+
+@app.put("/categories/management/{category_id}")
+async def update_category(category_id: int, name: Optional[str] = None, description: Optional[str] = None,
+                         target_allocation_pct: Optional[float] = None, benchmark_ticker: Optional[str] = None):
+    """Update a category"""
+    try:
+        category_service = CategoryService()
+        result = category_service.update_category(category_id, name, description,
+                                                 target_allocation_pct, benchmark_ticker)
+
+        if not result.get('success'):
+            raise HTTPException(status_code=400, detail=result.get('error', 'Failed to update category'))
+
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating category: {str(e)}")
 
 @app.post("/watchlist/custom")
 async def get_custom_watchlist(portfolio: Portfolio, min_score: float = 70.0):
@@ -785,6 +928,482 @@ async def update_momentum_scores_db(portfolio_id: int):
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating momentum scores: {str(e)}")
+
+@app.get("/database/portfolio/{portfolio_id}/category-targets")
+async def get_portfolio_category_targets(portfolio_id: int):
+    """Get portfolio-specific category targets"""
+    try:
+        from .database.config import db_config
+        from .models.database import PortfolioCategoryTarget, Category
+
+        with db_config.get_session_context() as session:
+            # Get portfolio-specific targets
+            targets = session.query(
+                PortfolioCategoryTarget.category_id,
+                PortfolioCategoryTarget.target_allocation_pct,
+                Category.name,
+                Category.benchmark_ticker
+            ).join(Category).filter(
+                PortfolioCategoryTarget.portfolio_id == portfolio_id
+            ).all()
+
+            if not targets:
+                # Return global defaults if no portfolio-specific targets
+                categories = session.query(Category).filter_by(is_active=True).all()
+                return {
+                    "portfolio_id": portfolio_id,
+                    "using_defaults": True,
+                    "targets": [{
+                        "category_id": c.id,
+                        "category_name": c.name,
+                        "target_allocation_pct": float(c.target_allocation_pct) if c.target_allocation_pct else 0,
+                        "benchmark": c.benchmark_ticker
+                    } for c in categories]
+                }
+
+            return {
+                "portfolio_id": portfolio_id,
+                "using_defaults": False,
+                "targets": [{
+                    "category_id": t[0],
+                    "category_name": t[2],
+                    "target_allocation_pct": float(t[1]),
+                    "benchmark": t[3]
+                } for t in targets]
+            }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching targets: {str(e)}")
+
+@app.post("/database/portfolio/{portfolio_id}/category-targets")
+async def set_portfolio_category_target(portfolio_id: int, category_id: int, target_pct: float):
+    """Set or update a portfolio-specific category target"""
+    try:
+        from .database.config import db_config
+        from .models.database import PortfolioCategoryTarget
+        from datetime import datetime
+
+        with db_config.get_session_context() as session:
+            # Check if target already exists
+            target = session.query(PortfolioCategoryTarget).filter_by(
+                portfolio_id=portfolio_id,
+                category_id=category_id
+            ).first()
+
+            if target:
+                # Update existing
+                target.target_allocation_pct = target_pct
+                target.updated_at = datetime.now()
+            else:
+                # Create new
+                target = PortfolioCategoryTarget(
+                    portfolio_id=portfolio_id,
+                    category_id=category_id,
+                    target_allocation_pct=target_pct
+                )
+                session.add(target)
+
+            session.commit()
+            return {"success": True, "message": "Target updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating target: {str(e)}")
+
+@app.post("/database/portfolio/{portfolio_id}/reset-targets")
+async def reset_portfolio_targets(portfolio_id: int):
+    """Reset portfolio to use global category defaults"""
+    try:
+        from .database.config import db_config
+        from .models.database import PortfolioCategoryTarget, Category
+
+        with db_config.get_session_context() as session:
+            # Delete all portfolio-specific targets
+            session.query(PortfolioCategoryTarget).filter_by(
+                portfolio_id=portfolio_id
+            ).delete()
+
+            # Re-populate with global defaults
+            categories = session.query(Category).filter_by(is_active=True).all()
+            for cat in categories:
+                if cat.name != 'Uncategorized':
+                    target = PortfolioCategoryTarget(
+                        portfolio_id=portfolio_id,
+                        category_id=cat.id,
+                        target_allocation_pct=cat.target_allocation_pct
+                    )
+                    session.add(target)
+
+            session.commit()
+            return {"success": True, "message": "Targets reset to defaults"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error resetting targets: {str(e)}")
+
+# ========== Authentication & User Management Endpoints ==========
+
+from .auth import (
+    UserCredentials, UserRegistration, UserProfile, Token,
+    create_access_token, get_current_user, get_current_user_id, TokenData
+)
+from .services.user_service import UserService
+from .services.user_portfolio_service import UserPortfolioService
+from .database.config import get_database_session
+
+def get_user_service():
+    """Get user service with database session"""
+    if not DATABASE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Database not available")
+    db = next(get_database_session())
+    return UserService(db)
+
+def get_user_portfolio_service():
+    """Get user portfolio service with database session"""
+    if not DATABASE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Database not available")
+    db = next(get_database_session())
+    return UserPortfolioService(db)
+
+@app.post("/auth/register", response_model=dict)
+async def register_user(registration: UserRegistration):
+    """Register a new user account"""
+    service = get_user_service()
+    try:
+        user = service.create_user(registration)
+        token = create_access_token(user.id, user.username)
+
+        return {
+            "message": "User registered successfully",
+            "user": UserProfile(
+                id=user.id,
+                username=user.username,
+                email=user.email,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                is_active=user.is_active,
+                created_at=user.created_at
+            ),
+            "token": Token(access_token=token)
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
+
+@app.post("/auth/login", response_model=dict)
+async def login_user(credentials: UserCredentials):
+    """Login with username/email and password"""
+    service = get_user_service()
+    try:
+        user = service.authenticate_user(credentials.username, credentials.password)
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid username or password"
+            )
+
+        token = create_access_token(user.id, user.username)
+
+        return {
+            "message": "Login successful",
+            "user": UserProfile(
+                id=user.id,
+                username=user.username,
+                email=user.email,
+                first_name=user.first_name,
+                last_name=user.last_name,
+                is_active=user.is_active,
+                created_at=user.created_at
+            ),
+            "token": Token(access_token=token)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Login failed: {str(e)}")
+
+@app.get("/auth/profile", response_model=UserProfile)
+async def get_profile(user_data: TokenData = Depends(get_current_user)):
+    """Get current user profile"""
+    service = get_user_service()
+    try:
+        profile = service.get_user_profile(user_data.user_id)
+        if not profile:
+            raise HTTPException(status_code=404, detail="User not found")
+        return profile
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching profile: {str(e)}")
+
+@app.get("/auth/stats")
+async def get_user_stats(user_id: int = Depends(get_current_user_id)):
+    """Get user statistics"""
+    service = get_user_service()
+    try:
+        stats = service.get_user_stats(user_id)
+        return stats
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching stats: {str(e)}")
+
+# ========== User Portfolio Management Endpoints ==========
+
+@app.get("/user/portfolios")
+async def get_user_portfolios(user_id: int = Depends(get_current_user_id)):
+    """Get all portfolios for the authenticated user"""
+    service = get_user_portfolio_service()
+    try:
+        portfolios = service.get_user_portfolios(user_id)
+        return {
+            "portfolios": [
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "description": p.description,
+                    "created_at": p.created_at.isoformat(),
+                    "updated_at": p.updated_at.isoformat()
+                }
+                for p in portfolios
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching portfolios: {str(e)}")
+
+@app.get("/user/portfolios/summaries")
+async def get_user_portfolios_with_summaries(user_id: int = Depends(get_current_user_id)):
+    """Get all portfolios with brief summaries (value, positions, returns)"""
+    service = get_user_portfolio_service()
+    try:
+        summaries = service.get_all_portfolios_with_summaries(user_id)
+        return {
+            "portfolios": summaries
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching portfolio summaries: {str(e)}")
+
+@app.post("/user/portfolios")
+async def create_user_portfolio(
+    name: str,
+    description: Optional[str] = None,
+    user_id: int = Depends(get_current_user_id)
+):
+    """Create a new portfolio"""
+    service = get_user_portfolio_service()
+    try:
+        portfolio = service.create_portfolio(user_id, name, description)
+        return {
+            "message": "Portfolio created successfully",
+            "portfolio": {
+                "id": portfolio.id,
+                "name": portfolio.name,
+                "description": portfolio.description,
+                "created_at": portfolio.created_at.isoformat()
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating portfolio: {str(e)}")
+
+@app.get("/user/portfolios/{portfolio_id}")
+async def get_portfolio_summary(
+    portfolio_id: int,
+    user_id: int = Depends(get_current_user_id)
+):
+    """Get portfolio summary with holdings"""
+    service = get_user_portfolio_service()
+    try:
+        summary = service.get_portfolio_summary(portfolio_id, user_id)
+        if not summary:
+            raise HTTPException(status_code=404, detail="Portfolio not found")
+        return summary
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching portfolio: {str(e)}")
+
+@app.put("/user/portfolios/{portfolio_id}")
+async def update_user_portfolio(
+    portfolio_id: int,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+    user_id: int = Depends(get_current_user_id)
+):
+    """Update portfolio details"""
+    service = get_user_portfolio_service()
+    try:
+        portfolio = service.update_portfolio(portfolio_id, user_id, name=name, description=description)
+        if not portfolio:
+            raise HTTPException(status_code=404, detail="Portfolio not found")
+        return {
+            "message": "Portfolio updated successfully",
+            "portfolio": {
+                "id": portfolio.id,
+                "name": portfolio.name,
+                "description": portfolio.description
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating portfolio: {str(e)}")
+
+@app.delete("/user/portfolios/{portfolio_id}")
+async def delete_user_portfolio(
+    portfolio_id: int,
+    user_id: int = Depends(get_current_user_id)
+):
+    """Delete a portfolio"""
+    service = get_user_portfolio_service()
+    try:
+        success = service.delete_portfolio(portfolio_id, user_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Portfolio not found")
+        return {"message": "Portfolio deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting portfolio: {str(e)}")
+
+@app.get("/user/portfolios/{portfolio_id}/holdings")
+async def get_portfolio_holdings_endpoint(
+    portfolio_id: int,
+    user_id: int = Depends(get_current_user_id)
+):
+    """Get all holdings for a portfolio"""
+    service = get_user_portfolio_service()
+    try:
+        holdings = service.get_portfolio_holdings(portfolio_id, user_id)
+        return {"holdings": holdings}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching holdings: {str(e)}")
+
+@app.post("/user/portfolios/{portfolio_id}/holdings")
+async def add_holding(
+    portfolio_id: int,
+    ticker: str,
+    shares: float,
+    average_cost_basis: Optional[float] = None,
+    category_name: Optional[str] = None,
+    user_id: int = Depends(get_current_user_id)
+):
+    """Add or update a holding in the portfolio"""
+    service = get_user_portfolio_service()
+    try:
+        from decimal import Decimal
+        holding = service.add_or_update_holding(
+            portfolio_id,
+            user_id,
+            ticker,
+            Decimal(str(shares)),
+            Decimal(str(average_cost_basis)) if average_cost_basis else None,
+            category_name
+        )
+        return {
+            "message": "Holding added successfully",
+            "holding": {
+                "ticker": holding.security.ticker,
+                "shares": float(holding.shares)
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error adding holding: {str(e)}")
+
+@app.delete("/user/portfolios/{portfolio_id}/holdings/{ticker}")
+async def remove_holding_endpoint(
+    portfolio_id: int,
+    ticker: str,
+    user_id: int = Depends(get_current_user_id)
+):
+    """Remove a holding from the portfolio"""
+    service = get_user_portfolio_service()
+    try:
+        success = service.remove_holding(portfolio_id, user_id, ticker)
+        if not success:
+            raise HTTPException(status_code=404, detail="Holding not found")
+        return {"message": "Holding removed successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error removing holding: {str(e)}")
+
+@app.get("/user/portfolios/{portfolio_id}/transactions")
+async def get_portfolio_transactions_endpoint(
+    portfolio_id: int,
+    limit: int = 100,
+    user_id: int = Depends(get_current_user_id)
+):
+    """Get transaction history for a portfolio"""
+    service = get_user_portfolio_service()
+    try:
+        transactions = service.get_portfolio_transactions(portfolio_id, user_id, limit)
+        return {"transactions": transactions}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching transactions: {str(e)}")
+
+@app.post("/user/portfolios/{portfolio_id}/transactions")
+async def add_transaction_endpoint(
+    portfolio_id: int,
+    ticker: str,
+    transaction_type: str,
+    shares: float,
+    price_per_share: float,
+    transaction_date: str,
+    fees: float = 0,
+    notes: Optional[str] = None,
+    user_id: int = Depends(get_current_user_id)
+):
+    """Add a transaction to the portfolio"""
+    service = get_user_portfolio_service()
+    try:
+        from decimal import Decimal
+        from datetime import datetime
+        txn_date = datetime.strptime(transaction_date, "%Y-%m-%d").date()
+
+        transaction = service.add_transaction(
+            portfolio_id,
+            user_id,
+            ticker,
+            transaction_type,
+            Decimal(str(shares)),
+            Decimal(str(price_per_share)),
+            txn_date,
+            Decimal(str(fees)),
+            notes
+        )
+        return {
+            "message": "Transaction added successfully",
+            "transaction": {
+                "id": transaction.id,
+                "ticker": transaction.security.ticker,
+                "transaction_type": transaction.transaction_type,
+                "shares": float(transaction.shares)
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error adding transaction: {str(e)}")
+
+@app.delete("/user/portfolios/{portfolio_id}/transactions/{transaction_id}")
+async def delete_transaction_endpoint(
+    portfolio_id: int,
+    transaction_id: int,
+    user_id: int = Depends(get_current_user_id)
+):
+    """Delete a transaction from the portfolio"""
+    service = get_user_portfolio_service()
+    try:
+        success = service.delete_transaction(portfolio_id, user_id, transaction_id)
+        if success:
+            return {"message": "Transaction deleted successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Transaction not found")
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting transaction: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException, Depends, status, Request
+from fastapi import FastAPI, HTTPException, Depends, status, Request, Response
+from pydantic import BaseModel
 from typing import Optional, List
 import logging
 import os
@@ -1193,7 +1194,7 @@ def get_user_portfolio_service():
 
 @app.post("/auth/register", response_model=dict)
 @limiter.limit(RateLimits.AUTHENTICATION)
-async def register_user(request: Request, registration: UserRegistration):
+async def register_user(request: Request, response: Response, registration: UserRegistration):
     """Register a new user account"""
     service = get_user_service()
     try:
@@ -1221,7 +1222,7 @@ async def register_user(request: Request, registration: UserRegistration):
 
 @app.post("/auth/login", response_model=dict)
 @limiter.limit(RateLimits.AUTHENTICATION)
-async def login_user(request: Request, credentials: UserCredentials):
+async def login_user(request: Request, response: Response, credentials: UserCredentials):
     """Login with username/email and password"""
     service = get_user_service()
     try:
@@ -1254,15 +1255,14 @@ async def login_user(request: Request, credentials: UserCredentials):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Login failed: {str(e)}")
 
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
 @app.post("/auth/refresh", response_model=dict)
 @limiter.limit(RateLimits.AUTHENTICATION)
-async def refresh_access_token(request: Request, body: dict):
+async def refresh_access_token(request: Request, response: Response, body: RefreshTokenRequest):
     """Exchange a refresh token for a new access token"""
-    refresh_token = body.get("refresh_token")
-    if not refresh_token:
-        raise HTTPException(status_code=400, detail="refresh_token is required")
-
-    token_data = decode_refresh_token(refresh_token)
+    token_data = decode_refresh_token(body.refresh_token)
     new_access_token = create_access_token(token_data.user_id, token_data.username)
 
     return {

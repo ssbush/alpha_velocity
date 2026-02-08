@@ -1,344 +1,160 @@
 # Alpha Velocity - TODO List
 
-**Generated**: 2026-01-24
+**Last Updated**: 2026-02-08
 **Status**: Active Development
-
-This TODO list is organized by priority to guide improvements to the Alpha Velocity platform.
 
 ---
 
 ## High Priority (Critical for Production Readiness)
 
-### 1. Add Comprehensive Type Hints
-- [x] Add type hints to `backend/services/momentum_engine.py` ✅ (2026-01-24)
-- [x] Add type hints to `backend/services/portfolio_service.py` ✅ (2026-01-24)
-- [x] Add type hints to `backend/services/comparison_service.py` ✅ (2026-01-24)
+### 1. Type Hints
+- [x] Add type hints to core services (momentum, portfolio, comparison, user) *(2026-01-24)*
+- [x] Add mypy to requirements *(2026-01-24)*
 - [ ] Add type hints to `backend/services/historical_service.py`
-- [x] Add type hints to `backend/services/user_service.py` ✅ (2026-01-24)
 - [ ] Add type hints to `backend/services/user_portfolio_service.py`
 - [ ] Add type hints to `backend/services/category_service.py`
 - [ ] Add type hints to `backend/main.py` endpoint functions
-- [x] Add mypy to requirements.txt ✅ (2026-01-24)
-- [ ] Run mypy to verify type correctness
+- [ ] Run mypy and fix all type errors
 
-**Benefits**: Better IDE support, catch bugs early, improve code maintainability
+### 2. Test Coverage
+- [x] pytest, pytest-asyncio, pytest-cov configured *(2026-02-08)*
+- [x] Momentum engine unit tests (5 tests) *(2026-02-08)*
+- [x] Portfolio service unit tests (7 tests) *(2026-02-08)*
+- [x] API endpoint integration tests (14 tests) *(2026-02-08)*
+- [x] Validator tests (7 tests) *(2026-02-08)*
+- [x] Test fixtures in conftest.py *(2026-02-08)*
+- [ ] Add auth endpoint tests (register, login, refresh, profile)
+- [ ] Add database model and relationship tests
+- [ ] Add middleware tests (logging, audit, performance)
+- [ ] Increase coverage from 15% to 70%+ (current `--cov-fail-under=70` fails)
+- [ ] Add tests for error handlers and custom exceptions
 
----
+### 3. Security Hardening
+- [x] SECRET_KEY enforcement (crash in production if missing) *(2026-02-08)*
+- [x] Short-lived access tokens (1 hour) with 7-day refresh tokens *(2026-02-08)*
+- [x] Password strength enforcement (uppercase + lowercase + digit) *(2026-02-08)*
+- [x] Token type validation (access vs refresh) *(2026-02-08)*
+- [x] CORS environment-based configuration *(2026-01-24)*
+- [x] Rate limiting on all endpoints *(2026-01-24)*
+- [x] Input validation and sanitization *(2026-01-24)*
+- [ ] Add security headers middleware (HSTS, CSP, X-Frame-Options)
+- [ ] Implement account lockout after failed login attempts
+- [ ] Add CSRF protection for state-changing endpoints
+- [ ] Add refresh token rotation (issue new refresh token on each refresh)
 
-### 2. Implement Proper Logging Framework
-- [x] Create logging configuration module (`backend/config/logging_config.py`) ✅ (2026-01-24)
-- [x] Add JSON and colored console formatters ✅ (2026-01-24)
-- [x] Configure logging levels (DEBUG, INFO, WARNING, ERROR, CRITICAL) ✅ (2026-01-24)
-- [x] Add structured logging with context (user_id, request_id, ticker, duration_ms) ✅ (2026-01-24)
-- [x] Add log rotation (10MB per file, 5 backups) ✅ (2026-01-24)
-- [x] Create PerformanceLogger context manager ✅ (2026-01-24)
-- [x] Implement request/response logging middleware ✅ (2026-01-24)
-- [x] Add slow request detection (>1000ms) ✅ (2026-01-24)
-- [x] Replace `print()` in `backend/main.py` ✅ (2026-01-24)
-- [x] Replace `print()` in `backend/services/momentum_engine.py` ✅ (2026-01-24)
-- [x] Replace `print()` in `backend/services/portfolio_service.py` ✅ (2026-01-24)
-- [x] Replace `print()` in `backend/services/comparison_service.py` ✅ (2026-01-24)
-- [x] Replace `print()` in `backend/database/config.py` ✅ (2026-01-24)
-- [ ] Replace remaining `print()` in migration scripts (low priority)
-- [x] Suppress noisy third-party loggers ✅ (2026-01-24)
-
-**Benefits**: ✅ Better debugging, production monitoring, audit trails, request tracing
-
----
-
-### 3. Fix CORS Configuration
-- [x] Remove `allow_origins=["*"]` from main.py ✅ (2026-01-24)
-- [x] Create environment-based CORS configuration (`backend/config/cors_config.py`) ✅ (2026-01-24)
-- [x] Add allowed origins to `.env.example` file ✅ (2026-01-24)
-- [x] Implement CORS configuration for development vs production ✅ (2026-01-24)
-- [x] Add production security validation (blocks wildcard in production) ✅ (2026-01-24)
-- [x] Add origin format validation ✅ (2026-01-24)
-- [x] Add CORS configuration logging ✅ (2026-01-24)
-- [ ] Test CORS with production frontend domain (when available)
-
-**Security Risk**: ✅ FIXED - Now uses environment-specific origins, blocks wildcards in production
-
----
-
-### 4. Add Input Validation and Sanitization
-- [ ] Install and configure `pydantic` for all request models
-- [ ] Add ticker symbol validation (format, length, allowed characters)
-- [ ] Validate date inputs (format, range)
-- [ ] Validate numeric inputs (min/max values, decimals)
-- [ ] Add email validation for user registration
-- [ ] Sanitize SQL inputs (verify SQLAlchemy protection)
-- [ ] Add validation for portfolio names and descriptions
-- [ ] Create custom validators for financial data
-
-**Security Risk**: Prevents injection attacks, data corruption
-
----
-
-### 5. Implement Rate Limiting
-- [ ] Install `slowapi` or `fastapi-limiter`
-- [ ] Add rate limiting to authentication endpoints (prevent brute force)
-- [ ] Add rate limiting to expensive operations (momentum calculations)
-- [ ] Configure different limits for authenticated vs anonymous users
-- [ ] Add rate limit headers to responses
-- [ ] Create rate limit configuration in environment variables
-- [ ] Add rate limit exceeded error handling
-
-**Security Risk**: API abuse prevention, DoS protection
-
----
-
-### 6. Add Unit Tests
-- [ ] Install pytest and pytest-asyncio
-- [ ] Create tests for `MomentumEngine.calculate_price_momentum()`
-- [ ] Create tests for `MomentumEngine.calculate_technical_momentum()`
-- [ ] Create tests for `MomentumEngine.calculate_fundamental_momentum()`
-- [ ] Create tests for `PortfolioService.analyze_portfolio()`
-- [ ] Create tests for `PortfolioService.get_portfolio_by_categories()`
-- [ ] Create tests for user authentication flows
-- [ ] Create tests for database models and relationships
-- [ ] Add integration tests for critical API endpoints
-- [ ] Set up test coverage reporting (aim for 80%+)
-- [ ] Add mock data providers for consistent testing
-
-**Benefits**: Catch regressions, safe refactoring, documentation
-
----
-
-### 7. Create Environment Configuration
-- [x] Create `.env.example` file with all required variables ✅ (2026-01-24)
-- [x] Document each environment variable ✅ (2026-01-24)
-- [x] Add validation for required environment variables on startup ✅ (2026-01-24)
-- [x] Create configurations for dev/staging/production ✅ (2026-01-24)
-- [x] Add secrets management documentation ✅ (2026-01-24)
-- [x] Verify `.env` in `.gitignore` ✅ (already present)
-- [ ] Add startup validation for critical variables (optional enhancement)
-
-**Security Risk**: ✅ FIXED - Comprehensive .env.example with security notes
+### 4. Environment & Configuration
+- [x] `.env.example` with all variables documented *(2026-02-08)*
+- [x] SECRET_KEY documentation fixed to match code *(2026-02-08)*
+- [x] Environment-aware behavior (dev vs production) *(2026-02-08)*
+- [ ] Add startup validation for all critical environment variables
+- [ ] Document deployment configuration for common platforms (AWS, Railway, etc.)
 
 ---
 
 ## Medium Priority (Production Enhancement)
 
-### 8. Add API Versioning
-- [ ] Restructure endpoints under `/api/v1/` prefix
-- [ ] Update frontend to use versioned endpoints
-- [ ] Create API version routing strategy
-- [ ] Document versioning strategy in README
-- [ ] Plan for future v2 migration
+### 5. API Versioning
+- [x] v1 router created with momentum, portfolio, categories, cache, metrics endpoints *(2026-01-24)*
+- [ ] Migrate frontend to use `/api/v1/` prefixed endpoints
+- [ ] Deprecate unversioned endpoints with warning headers
+- [ ] Document versioning strategy for consumers
 
----
-
-### 9. Implement Pagination
-- [ ] Add pagination to `GET /momentum/top/{limit}`
-- [ ] Add pagination to transaction history endpoints
-- [ ] Add pagination to portfolio holdings
-- [ ] Add pagination to historical data endpoints
-- [ ] Create reusable pagination utility
-- [ ] Add pagination metadata (total, page, per_page, total_pages)
+### 6. Pagination
+- [x] Pagination utility created (`backend/utils/pagination.py`) *(2026-01-24)*
+- [x] Paginated momentum and portfolio endpoints in v1 *(2026-01-24)*
+- [ ] Apply pagination to transaction history endpoints
+- [ ] Apply pagination to historical data endpoints
 - [ ] Update frontend to handle paginated responses
 
----
+### 7. Redis Caching
+- [x] Redis cache layer with decorators (`backend/cache/`) *(2026-01-24)*
+- [x] Cache configuration in `.env.example` *(2026-01-24)*
+- [ ] Deploy and test with actual Redis instance
+- [ ] Tune TTLs based on production usage patterns
+- [ ] Monitor cache hit rates and optimize
 
-### 10. Add Caching Layer (Redis)
-- [ ] Install Redis and `aioredis`
-- [ ] Configure Redis connection
-- [ ] Cache portfolio analysis results (5-minute TTL)
-- [ ] Cache category analysis results (10-minute TTL)
-- [ ] Cache top momentum stocks (1-hour TTL)
-- [ ] Cache user profile data
-- [ ] Implement cache invalidation strategy
-- [ ] Add cache statistics endpoint
-- [ ] Monitor cache hit rates
+### 8. CI/CD Pipeline
+- [x] GitHub Actions workflows (ci, deploy, dependency-check) *(2026-01-24)*
+- [x] Pre-commit hooks configuration *(2026-01-24)*
+- [x] Docker and docker-compose setup *(2026-01-24)*
+- [ ] Verify CI workflow runs tests successfully on GitHub
+- [ ] Add security scanning (bandit, safety) to CI
+- [ ] Configure Dependabot for automatic dependency updates
+- [ ] Set up staging environment deployment
 
----
+### 9. Error Handling
+- [x] Custom exception hierarchy (`backend/exceptions.py`) *(2026-01-24)*
+- [x] Structured error models (`backend/models/error_models.py`) *(2026-01-24)*
+- [x] Error handlers registered *(2026-01-24)*
+- [ ] Audit all endpoints for consistent error handling
+- [ ] Ensure InvalidTickerError and other custom exceptions are caught everywhere (not just momentum endpoint)
+- [ ] Add error code documentation for API consumers
 
-### 11. Optimize Concurrent API Calls
-- [ ] Convert data provider to async/await
-- [ ] Use `asyncio.gather()` for parallel ticker fetching
-- [ ] Optimize portfolio analysis with concurrent momentum calculations
-- [ ] Add timeout handling for external API calls
-- [ ] Implement circuit breaker for failing services
-- [ ] Add retry logic with exponential backoff
-
----
-
-### 12. Add CI/CD Pipeline
-- [ ] Create `.github/workflows/test.yml`
-- [ ] Add automated testing on pull requests
-- [ ] Add linting checks (flake8, black, mypy)
-- [ ] Add security scanning (bandit, safety)
-- [ ] Create deployment workflow
-- [ ] Add database migration checks
-- [ ] Configure automatic dependency updates (Dependabot)
-
----
-
-### 13. Enhance Error Messages
-- [ ] Create error code system (e.g., AV-1001, AV-1002)
-- [ ] Separate internal errors from user-facing messages
-- [ ] Add error documentation
-- [ ] Implement proper HTTP status codes consistently
-- [ ] Add error response schema
-- [ ] Log internal errors but show safe messages to users
-
----
-
-### 14. Add API Logging Middleware
-- [ ] Create request logging middleware
-- [ ] Log request method, path, user, timestamp
-- [ ] Log response status, duration
-- [ ] Add correlation IDs for request tracing
-- [ ] Implement log aggregation strategy
-- [ ] Add slow query detection and logging
+### 10. Logging & Monitoring
+- [x] Structured logging with JSON/colored formatters *(2026-01-24)*
+- [x] Request/response logging middleware *(2026-01-24)*
+- [x] Audit middleware *(2026-01-24)*
+- [x] Performance monitoring middleware *(2026-01-24)*
+- [ ] Replace remaining `print()` in migration scripts
+- [ ] Integrate APM tool (Sentry/DataDog) for production monitoring
+- [ ] Set up alerts for error rate spikes and slow requests
 
 ---
 
 ## Low Priority (Nice to Have)
 
-### 15. Frontend Framework Migration
-- [ ] Evaluate React vs Vue vs Svelte
-- [ ] Create proof-of-concept with chosen framework
-- [ ] Migrate dashboard view
-- [ ] Migrate portfolio view
-- [ ] Migrate all other views
-- [ ] Add modern build pipeline (Vite/Webpack)
-- [ ] Implement component library
-
----
-
-### 16. Add WebSocket Support
-- [ ] Add WebSocket endpoint for real-time updates
-- [ ] Push momentum score updates to connected clients
-- [ ] Push portfolio value changes
-- [ ] Add connection management
-- [ ] Handle reconnection logic
-- [ ] Add WebSocket authentication
-
----
-
-### 17. Implement Advanced PWA Features
-- [ ] Enhance service worker for true offline support
-- [ ] Add push notification support
-- [ ] Implement background sync
-- [ ] Add app install prompts
-- [ ] Create app icons for all platforms
-- [ ] Add splash screens
-
----
-
-### 18. Add Database Migrations (Alembic)
-- [ ] Install and configure Alembic
-- [ ] Create initial migration
-- [ ] Add migration scripts for all schema changes
-- [ ] Document migration workflow
-- [ ] Add migration testing
-- [ ] Create rollback procedures
-
----
-
-### 19. Create Architecture Documentation
-- [ ] Create system architecture diagram
-- [ ] Create database schema diagram (ERD)
-- [ ] Document API flow diagrams
-- [ ] Create data flow diagrams
-- [ ] Document security architecture
-- [ ] Add deployment architecture
-
----
-
-### 20. Add Performance Monitoring
-- [ ] Integrate APM tool (New Relic/DataDog/Sentry)
-- [ ] Monitor API response times
-- [ ] Track database query performance
-- [ ] Monitor cache hit rates
-- [ ] Set up alerts for performance degradation
-- [ ] Create performance dashboard
-
----
-
-### 21. Implement GraphQL Alternative
-- [ ] Evaluate need for GraphQL
-- [ ] Install and configure Strawberry or Graphene
-- [ ] Create GraphQL schema
-- [ ] Implement resolvers
-- [ ] Add GraphQL playground
-- [ ] Document GraphQL API
-
----
-
-## Code Quality Improvements
-
-### Refactoring Tasks
-- [ ] Extract hardcoded `DEFAULT_PORTFOLIO` to `config/constants.py`
-- [ ] Centralize price fetching logic into dedicated service
-- [ ] Remove duplicate code in portfolio services
-- [ ] Standardize error handling patterns
-- [ ] Consolidate API response formatting
-- [ ] Extract business logic from endpoint handlers
-- [ ] Create shared utilities module
-
-### Documentation Tasks
-- [ ] Add docstrings to all public functions
-- [ ] Document complex algorithms (momentum scoring)
-- [ ] Add inline comments for non-obvious code
-- [ ] Enhance OpenAPI/Swagger documentation
-- [ ] Create API usage examples
-- [ ] Document authentication flow
-- [ ] Add troubleshooting guide
-
----
-
-## Security Enhancements
-
-### Additional Security Tasks
-- [ ] Add security headers middleware (HSTS, CSP, X-Frame-Options)
-- [ ] Implement API key management for external services
-- [ ] Add password strength requirements
-- [ ] Implement account lockout after failed login attempts
-- [ ] Add two-factor authentication (2FA)
-- [ ] Implement audit logging for sensitive operations
-- [ ] Add CSRF protection
-- [ ] Regular security audits with automated tools
-- [ ] Implement data encryption at rest
-- [ ] Add PII data handling compliance (GDPR considerations)
-
----
-
-## Performance Optimizations
-
-### Database Optimizations
-- [ ] Add database query profiling
-- [ ] Optimize N+1 queries with eager loading
-- [ ] Add database indexes for common queries
-- [ ] Implement query result caching
-- [ ] Add database connection health checks
-- [ ] Monitor slow queries and optimize
-
-### Frontend Optimizations
-- [ ] Implement code splitting
-- [ ] Add lazy loading for routes
-- [ ] Optimize bundle size
-- [ ] Implement CDN for static assets
-- [ ] Add image optimization
+### 11. Frontend Improvements
+- [x] Remove hardcoded `localhost:8000` URLs *(2026-02-08)*
+- [x] Configurable API base URL via `window.ALPHAVELOCITY_API_URL` *(2026-02-08)*
+- [x] Auto-refresh access token on 401 *(2026-02-08)*
+- [ ] Evaluate frontend framework migration (React/Vue/Svelte)
+- [ ] Add modern build pipeline (Vite)
 - [ ] Implement virtual scrolling for large lists
 - [ ] Add service worker caching strategy
 
+### 12. WebSocket Support
+- [ ] Add WebSocket endpoint for real-time momentum score updates
+- [ ] Push portfolio value changes to connected clients
+- [ ] Add WebSocket authentication
+
+### 13. Database Improvements
+- [ ] Set up Alembic for schema migrations
+- [ ] Add database indexes for common queries
+- [ ] Optimize N+1 queries with eager loading
+- [ ] Add database connection health checks and monitoring
+
+### 14. Advanced Security
+- [ ] Two-factor authentication (2FA)
+- [ ] API key management for external service consumers
+- [ ] Audit logging for sensitive operations (already have middleware, needs review)
+- [ ] Data encryption at rest
+- [ ] GDPR/PII compliance review
+
+### 15. Documentation
+- [ ] System architecture diagram
+- [ ] Database schema diagram (ERD)
+- [ ] API usage examples and guides
+- [ ] Authentication flow documentation
+- [ ] Deployment and operations runbook
+
 ---
 
-## Progress Tracking
+## Code Quality
 
-**High Priority**: 4/7 completed (57%)
-**Medium Priority**: 0/7 completed (0%)
-**Low Priority**: 0/7 completed (0%)
-
-**Overall Progress**: 4/21 major tasks completed (19%)
+- [ ] Extract hardcoded `DEFAULT_PORTFOLIO` to config/constants
+- [ ] Centralize price fetching logic into dedicated service
+- [ ] Remove duplicate code in portfolio services
+- [ ] Consolidate API response formatting
+- [ ] Add docstrings to all public functions
 
 ---
 
-## Notes
+## Progress Summary
 
-- This list is a living document and should be updated as work progresses
-- Mark items with `[x]` when completed
-- Add dates when tasks are completed
-- Add notes/blockers for delayed items
-- Review and reprioritize monthly
+| Priority | Done | Total | Progress |
+|----------|------|-------|----------|
+| High     | 3/4  | 4     | 75%      |
+| Medium   | 3/6  | 6     | 50%      |
+| Low      | 1/5  | 5     | 20%      |
+
+**Next up**: Increase test coverage to 70%+, add auth endpoint tests, security headers middleware.

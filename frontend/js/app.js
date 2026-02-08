@@ -12,12 +12,12 @@ class AlphaVelocityApp {
 
     init() {
         // Initialize auth manager
-        this.authManager = new AuthManager('http://localhost:8000');
+        this.authManager = new AuthManager(window.ALPHAVELOCITY_API_URL || window.location.origin);
         this.authManager.initAuthUI();
         this.authManager.setupEventListeners();
 
         // Initialize portfolio manager
-        this.portfolioManager = new PortfolioManager('http://localhost:8000', this.authManager);
+        this.portfolioManager = new PortfolioManager(window.ALPHAVELOCITY_API_URL || window.location.origin, this.authManager);
 
         // Set auth manager on API instance
         api.setAuthManager(this.authManager);
@@ -428,6 +428,7 @@ class AlphaVelocityApp {
                                         <th>Shares</th>
                                         <th>Avg Cost</th>
                                         <th>Total Cost</th>
+                                        <th>Current Price</th>
                                         <th>Current Value</th>
                                         <th>Gain/Loss</th>
                                         <th>Momentum</th>
@@ -457,6 +458,11 @@ class AlphaVelocityApp {
                                                 <td>${h.shares.toFixed(2)}</td>
                                                 <td>$${h.average_cost_basis ? h.average_cost_basis.toFixed(2) : '—'}</td>
                                                 <td>$${h.total_cost_basis ? h.total_cost_basis.toFixed(2) : '—'}</td>
+                                                <td>
+                                                    ${currentPrice !== null ?
+                                                        `$${currentPrice.toFixed(2)}`
+                                                        : '<span style="color: #6b7280;">—</span>'}
+                                                </td>
                                                 <td>
                                                     ${currentValue !== null ?
                                                         `<strong>$${currentValue.toFixed(2)}</strong>`
@@ -2092,7 +2098,7 @@ class AlphaVelocityApp {
 
     async loadPerformanceAnalytics(portfolioId = 'default', days = 30) {
         try {
-            const response = await fetch(`http://localhost:8000/historical/performance/${portfolioId}?days=${days}`);
+            const response = await fetch(`${window.ALPHAVELOCITY_API_URL || window.location.origin}/historical/performance/${portfolioId}?days=${days}`);
 
             if (!response.ok) {
                 throw new Error('Failed to fetch performance analytics');

@@ -1,12 +1,33 @@
-from fastapi import FastAPI, HTTPException, Depends, status
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, HTTPException, Depends, status, Request
 from typing import Optional, List
+import logging
+import os
+
+# Initialize logging first (before other imports)
+from .config.logging_config import setup_logging
+from .config.cors_config import setup_cors
+from .config.rate_limit_config import (
+    limiter,
+    rate_limit_exceeded_handler,
+    RateLimits,
+    log_rate_limit_config
+)
+
+# Setup logging based on environment
+setup_logging(
+    log_level=os.getenv('LOG_LEVEL', 'INFO'),
+    json_logs=os.getenv('JSON_LOGS', 'false').lower() == 'true',
+    console_output=True
+)
+
+logger = logging.getLogger(__name__)
 
 from .services.momentum_engine import MomentumEngine
 from .services.portfolio_service import PortfolioService
 from .services.comparison_service import ComparisonService
 from .services.daily_scheduler import initialize_scheduler, get_scheduler
 from .services.category_service import CategoryService
+from .middleware.logging_middleware import LoggingMiddleware
 from .models.momentum import MomentumScore
 from .models.portfolio import (
     PortfolioAnalysis, CategoryInfo, CategoryAnalysis,
@@ -21,18 +42,100 @@ from .models.comparison import PortfolioComparison
 # Initialize FastAPI app
 app = FastAPI(
     title="AlphaVelocity API",
-    description="AI Supply Chain Momentum Scoring Engine",
-    version="1.0.0"
+    description="""
+    AI Supply Chain Momentum Scoring Engine
+
+    ## API Versioning
+
+    This API uses versioning to ensure backward compatibility:
+    - **v1**: `/api/v1/` - Current stable version (recommended)
+    - **Legacy**: Root-level endpoints (deprecated, use v1 instead)
+
+    ## Features
+
+    - **Momentum Scoring**: Calculate momentum scores for stocks
+    - **Portfolio Analysis**: Analyze portfolio holdings and allocations
+    - **Category Management**: Manage and analyze portfolio categories
+    - **Cache Management**: Monitor and control price caching
+
+    ## Rate Limiting
+
+    - Public API: 100 requests/minute
+    - Authenticated API: 200 requests/minute
+    - Expensive operations: 10 requests/minute
+    - Administrative operations: 5 requests/minute
+
+    ## Authentication
+
+    Protected endpoints require JWT token in Authorization header:
+    ```
+    Authorization: Bearer <token>
+    ```
+    """,
+    version="1.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_tags=[
+        {
+            "name": "v1",
+            "description": "Version 1 API endpoints (recommended)"
+        },
+        {
+            "name": "momentum",
+            "description": "Momentum scoring operations"
+        },
+        {
+            "name": "portfolio",
+            "description": "Portfolio analysis operations"
+        },
+        {
+            "name": "categories",
+            "description": "Category management operations"
+        },
+        {
+            "name": "cache",
+            "description": "Cache management operations"
+        },
+        {
+            "name": "legacy",
+            "description": "Legacy endpoints (deprecated, use /api/v1/ instead)"
+        }
+    ]
 )
 
-# Add CORS middleware for mobile app access
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Setup secure CORS middleware (environment-based configuration)
+setup_cors(app)
+
+# Add middleware stack (order matters - last added is executed first)
+# 1. Performance monitoring (outermost - tracks total time)
+from .middleware.performance_middleware import PerformanceMiddleware
+app.add_middleware(PerformanceMiddleware, enable_logging=True, log_threshold_ms=5000)
+
+# 2. Audit logging (security events)
+from .middleware.audit_middleware import AuditMiddleware
+app.add_middleware(AuditMiddleware, enable_audit=True, log_all_requests=False)
+
+# 3. Request/response logging (detailed logging)
+app.add_middleware(LoggingMiddleware)
+
+# Register exception handlers for standardized error responses
+from .error_handlers import register_exception_handlers
+register_exception_handlers(app)
+
+# Add rate limiting
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+app.state.limiter = limiter
+# Note: RateLimitExceeded handler is registered in error_handlers.py
+
+# Log rate limit configuration
+log_rate_limit_config()
+
+# Include API versioning
+from .api import api_router
+app.include_router(api_router, prefix="/api")
+
+logger.info("API versioning enabled - v1 endpoints available at /api/v1/")
 
 # Default model portfolio for demo
 DEFAULT_PORTFOLIO = {
@@ -56,11 +159,11 @@ try:
     # Test if database is available
     DATABASE_AVAILABLE = db_config.test_connection()
     if DATABASE_AVAILABLE:
-        print("✅ Database connection successful - User authentication enabled")
+        logger.info("Database connection successful - User authentication enabled")
     else:
-        print("⚠️  Database connection failed - Running in file mode only")
+        logger.warning("Database connection failed - Running in file mode only")
 except Exception as e:
-    print(f"⚠️  Database initialization failed: {e}")
+    logger.warning(f"Database initialization failed: {e}", exc_info=True)
     DATABASE_AVAILABLE = False
 
 # Keep simple_db_service for legacy endpoints
@@ -68,7 +171,7 @@ try:
     from .simple_db_service import get_database_service
     db_service = get_database_service()
 except Exception as e:
-    print(f"Database service initialization failed: {e}")
+    logger.warning(f"Database service initialization failed: {e}", exc_info=True)
     db_service = None
 
 # Get all portfolio tickers for caching
@@ -82,7 +185,7 @@ def get_all_portfolio_tickers():
         for category_info in categories.values():
             all_tickers.update(category_info['tickers'])
     except Exception as e:
-        print(f"Warning: Could not load category tickers: {e}")
+        logger.warning(f"Could not load category tickers: {e}", exc_info=True)
 
     return list(all_tickers)
 
@@ -90,8 +193,10 @@ def get_all_portfolio_tickers():
 PORTFOLIO_TICKERS = get_all_portfolio_tickers()
 daily_scheduler = initialize_scheduler(momentum_engine, PORTFOLIO_TICKERS)
 
-print(f"📊 AlphaVelocity initialized with {len(PORTFOLIO_TICKERS)} tickers for daily caching")
-print(f"🎯 Tickers: {', '.join(sorted(PORTFOLIO_TICKERS))}")
+logger.info(
+    f"AlphaVelocity initialized with {len(PORTFOLIO_TICKERS)} tickers for daily caching",
+    extra={'ticker_count': len(PORTFOLIO_TICKERS), 'tickers': sorted(PORTFOLIO_TICKERS)}
+)
 
 @app.get("/")
 async def root():
@@ -99,13 +204,23 @@ async def root():
     return {"message": "AlphaVelocity API is running", "version": "1.0.0"}
 
 @app.get("/momentum/{ticker}", response_model=MomentumScore)
-async def get_momentum_score(ticker: str):
+@limiter.limit(RateLimits.PUBLIC_API)
+async def get_momentum_score(request: Request, ticker: str):
     """Get momentum score for a specific ticker"""
+    from .validators.validators import validate_ticker
+
     try:
-        result = momentum_engine.calculate_momentum_score(ticker.upper())
+        # Validate ticker symbol
+        ticker = validate_ticker(ticker)
+
+        result = momentum_engine.calculate_momentum_score(ticker)
         return MomentumScore(**result)
+    except ValueError as e:
+        # Input validation error
+        raise HTTPException(status_code=400, detail=f"Invalid ticker: {str(e)}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error calculating momentum for {ticker}: {str(e)}")
+        logger.error(f"Error calculating momentum for {ticker}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error calculating momentum: {str(e)}")
 
 @app.get("/portfolio/analysis")
 async def analyze_portfolio(portfolio_data: Optional[str] = None):
@@ -141,7 +256,8 @@ async def analyze_portfolio(portfolio_data: Optional[str] = None):
         raise HTTPException(status_code=500, detail=f"Error analyzing portfolio: {str(e)}")
 
 @app.post("/portfolio/analyze")
-async def analyze_custom_portfolio(portfolio: Portfolio):
+@limiter.limit(RateLimits.EXPENSIVE)
+async def analyze_custom_portfolio(request: Request, portfolio: Portfolio):
     """Analyze custom portfolio holdings"""
     try:
         if not portfolio.holdings:
@@ -233,13 +349,23 @@ async def analyze_category(category_name: str):
 @app.get("/momentum/top/{limit}")
 async def get_top_momentum_stocks(limit: int = 10, category: Optional[str] = None):
     """Get top momentum stocks, optionally filtered by category"""
+    from .validators.validators import validate_limit, sanitize_string
+
     try:
-        if limit > 50:
-            limit = 50  # Reasonable limit
+        # Validate limit parameter
+        limit = validate_limit(limit, max_limit=100)
+
+        # Validate category if provided
+        if category:
+            category = sanitize_string(category, max_length=100, allow_newlines=False)
 
         result = portfolio_service.get_top_momentum_stocks(category, limit)
         return result
+    except ValueError as e:
+        # Input validation error
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.error("Error fetching top momentum stocks", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error fetching top momentum stocks: {str(e)}")
 
 @app.get("/categories/{category_name}/tickers")
@@ -273,7 +399,7 @@ async def get_watchlist(min_score: float = 70.0):
 async def get_all_categories_management():
     """Get all categories with ticker details from database"""
     try:
-        category_service = CategoryService()
+        category_service = CategoryService(momentum_engine=momentum_engine)  # Use shared momentum_engine with cache
         categories = category_service.get_all_categories()
         return {
             'success': True,
@@ -399,7 +525,8 @@ async def get_cache_status():
         raise HTTPException(status_code=500, detail=f"Error getting cache status: {str(e)}")
 
 @app.post("/cache/clear")
-async def clear_cache():
+@limiter.limit(RateLimits.BULK)
+async def clear_cache(request: Request):
     """Clear the momentum cache"""
     try:
         momentum_engine.clear_cache()
@@ -577,7 +704,7 @@ async def backfill_historical_data(days_back: int = 21):
         from datetime import datetime, timedelta
         import yfinance as yf
 
-        print(f"🔄 Starting historical data backfill for {days_back} days...")
+        logger.info(f"Starting historical data backfill for {days_back} days", extra={'days_back': days_back})
 
         # Get trading dates (weekdays only)
         end_date = datetime.now()
@@ -599,10 +726,10 @@ async def backfill_historical_data(days_back: int = 21):
                 history = momentum_engine.historical_service.get_portfolio_history('default', 1)
                 existing_timestamps = [entry['timestamp'][:10] for entry in history['values']]
                 if date_str in existing_timestamps:
-                    print(f"  ✅ {date_str}: Already have data")
+                    logger.debug(f"Skipping {date_str}: Already have data", extra={'date': date_str})
                     continue
 
-                print(f"  🔄 Processing {date_str}...")
+                logger.debug(f"Processing {date_str}", extra={'date': date_str})
 
                 # Calculate portfolio value for this historical date
                 total_value = 0
@@ -627,7 +754,7 @@ async def backfill_historical_data(days_back: int = 21):
                             valid_positions += 1
 
                     except Exception as e:
-                        print(f"    ⚠️  {ticker}: {e}")
+                        logger.warning(f"Error processing {ticker} for {date_str}", extra={'ticker': ticker, 'date': date_str, 'error': str(e)})
                         continue
 
                 if valid_positions > 0:
@@ -644,15 +771,15 @@ async def backfill_historical_data(days_back: int = 21):
                     timestamp = f"{date_str}T16:00:00"
                     momentum_engine.historical_service._record_portfolio_value('default', timestamp, portfolio_data)
 
-                    print(f"    ✅ Recorded: ${total_value:,.2f}, momentum: {avg_momentum:.1f}")
+                    logger.info(f"Recorded data for {date_str}", extra={'date': date_str, 'total_value': total_value, 'avg_momentum': avg_momentum})
                     successful_dates += 1
                 else:
                     failed_dates.append(date_str)
-                    print(f"    ❌ No valid data for {date_str}")
+                    logger.warning(f"No valid data for {date_str}", extra={'date': date_str})
 
             except Exception as e:
                 failed_dates.append(date_str)
-                print(f"  ❌ Error processing {date_str}: {e}")
+                logger.error(f"Error processing {date_str}", extra={'date': date_str, 'error': str(e)}, exc_info=True)
                 continue
 
         return {
@@ -791,7 +918,8 @@ async def get_database_status():
         }
 
 @app.post("/database/migrate")
-async def run_database_migration():
+@limiter.limit(RateLimits.BULK)
+async def run_database_migration(request: Request):
     """Run database migration from JSON files"""
     if not DATABASE_AVAILABLE:
         raise HTTPException(status_code=503, detail="Database service not available")
@@ -1039,8 +1167,9 @@ async def reset_portfolio_targets(portfolio_id: int):
 # ========== Authentication & User Management Endpoints ==========
 
 from .auth import (
-    UserCredentials, UserRegistration, UserProfile, Token,
-    create_access_token, get_current_user, get_current_user_id, TokenData
+    UserCredentials, UserRegistration, UserProfile, Token, TokenPair,
+    create_access_token, create_refresh_token, decode_refresh_token,
+    get_current_user, get_current_user_id, TokenData
 )
 from .services.user_service import UserService
 from .services.user_portfolio_service import UserPortfolioService
@@ -1061,12 +1190,14 @@ def get_user_portfolio_service():
     return UserPortfolioService(db)
 
 @app.post("/auth/register", response_model=dict)
-async def register_user(registration: UserRegistration):
+@limiter.limit(RateLimits.AUTHENTICATION)
+async def register_user(request: Request, registration: UserRegistration):
     """Register a new user account"""
     service = get_user_service()
     try:
         user = service.create_user(registration)
-        token = create_access_token(user.id, user.username)
+        access_token = create_access_token(user.id, user.username)
+        refresh_token = create_refresh_token(user.id, user.username)
 
         return {
             "message": "User registered successfully",
@@ -1079,7 +1210,7 @@ async def register_user(registration: UserRegistration):
                 is_active=user.is_active,
                 created_at=user.created_at
             ),
-            "token": Token(access_token=token)
+            "token": TokenPair(access_token=access_token, refresh_token=refresh_token)
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1087,7 +1218,8 @@ async def register_user(registration: UserRegistration):
         raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
 
 @app.post("/auth/login", response_model=dict)
-async def login_user(credentials: UserCredentials):
+@limiter.limit(RateLimits.AUTHENTICATION)
+async def login_user(request: Request, credentials: UserCredentials):
     """Login with username/email and password"""
     service = get_user_service()
     try:
@@ -1099,7 +1231,8 @@ async def login_user(credentials: UserCredentials):
                 detail="Invalid username or password"
             )
 
-        token = create_access_token(user.id, user.username)
+        access_token = create_access_token(user.id, user.username)
+        refresh_token = create_refresh_token(user.id, user.username)
 
         return {
             "message": "Login successful",
@@ -1112,12 +1245,28 @@ async def login_user(credentials: UserCredentials):
                 is_active=user.is_active,
                 created_at=user.created_at
             ),
-            "token": Token(access_token=token)
+            "token": TokenPair(access_token=access_token, refresh_token=refresh_token)
         }
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Login failed: {str(e)}")
+
+@app.post("/auth/refresh", response_model=dict)
+@limiter.limit(RateLimits.AUTHENTICATION)
+async def refresh_access_token(request: Request, body: dict):
+    """Exchange a refresh token for a new access token"""
+    refresh_token = body.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(status_code=400, detail="refresh_token is required")
+
+    token_data = decode_refresh_token(refresh_token)
+    new_access_token = create_access_token(token_data.user_id, token_data.username)
+
+    return {
+        "access_token": new_access_token,
+        "token_type": "bearer"
+    }
 
 @app.get("/auth/profile", response_model=UserProfile)
 async def get_profile(user_data: TokenData = Depends(get_current_user)):

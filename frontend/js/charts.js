@@ -164,7 +164,7 @@ class ChartManager {
         // Fetch real historical data
         let chartData;
         try {
-            const response = await fetch(`http://localhost:8000/historical/chart-data/${portfolioId}?days=${days}`);
+            const response = await fetch(`${window.ALPHAVELOCITY_API_URL || window.location.origin}/historical/chart-data/${portfolioId}?days=${days}`);
             if (response.ok) {
                 chartData = await response.json();
             } else {

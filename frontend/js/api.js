@@ -1,6 +1,6 @@
 // AlphaVelocity API Client
 class AlphaVelocityAPI {
-    constructor(baseURL = 'http://localhost:8000') {
+    constructor(baseURL = (window.ALPHAVELOCITY_API_URL || window.location.origin)) {
         this.baseURL = baseURL;
         this.authManager = null;
     }
@@ -27,6 +27,26 @@ class AlphaVelocityAPI {
                 headers,
                 ...options
             });
+
+            // Auto-refresh on 401 if we have a refresh token
+            if (response.status === 401 && this.authManager && this.authManager.refreshToken) {
+                const refreshed = await this.authManager.refreshAccessToken();
+                if (refreshed) {
+                    // Retry with new token
+                    const retryHeaders = {
+                        ...headers,
+                        ...this.authManager.getAuthHeader()
+                    };
+                    const retryResponse = await fetch(url, {
+                        headers: retryHeaders,
+                        ...options
+                    });
+                    if (!retryResponse.ok) {
+                        throw new Error(`HTTP error! status: ${retryResponse.status}`);
+                    }
+                    return await retryResponse.json();
+                }
+            }
 
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);

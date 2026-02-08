@@ -8,6 +8,7 @@ class AuthManager {
         this.apiBaseUrl = apiBaseUrl;
         this.currentUser = null;
         this.token = null;
+        this.refreshToken = null;
         this.loadSession();
     }
 
@@ -16,10 +17,12 @@ class AuthManager {
      */
     loadSession() {
         const token = localStorage.getItem('auth_token');
+        const refreshToken = localStorage.getItem('refresh_token');
         const userStr = localStorage.getItem('current_user');
 
         if (token && userStr) {
             this.token = token;
+            this.refreshToken = refreshToken;
             this.currentUser = JSON.parse(userStr);
         }
     }
@@ -27,10 +30,14 @@ class AuthManager {
     /**
      * Save session to localStorage
      */
-    saveSession(token, user) {
-        this.token = token;
+    saveSession(accessToken, refreshToken, user) {
+        this.token = accessToken;
+        this.refreshToken = refreshToken;
         this.currentUser = user;
-        localStorage.setItem('auth_token', token);
+        localStorage.setItem('auth_token', accessToken);
+        if (refreshToken) {
+            localStorage.setItem('refresh_token', refreshToken);
+        }
         localStorage.setItem('current_user', JSON.stringify(user));
     }
 
@@ -39,8 +46,10 @@ class AuthManager {
      */
     clearSession() {
         this.token = null;
+        this.refreshToken = null;
         this.currentUser = null;
         localStorage.removeItem('auth_token');
+        localStorage.removeItem('refresh_token');
         localStorage.removeItem('current_user');
     }
 
@@ -59,6 +68,38 @@ class AuthManager {
             return { 'Authorization': `Bearer ${this.token}` };
         }
         return {};
+    }
+
+    /**
+     * Refresh the access token using the stored refresh token
+     * @returns {boolean} true if refresh succeeded, false otherwise
+     */
+    async refreshAccessToken() {
+        if (!this.refreshToken) {
+            return false;
+        }
+
+        try {
+            const response = await fetch(`${this.apiBaseUrl}/auth/refresh`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refresh_token: this.refreshToken })
+            });
+
+            if (!response.ok) {
+                this.clearSession();
+                return false;
+            }
+
+            const data = await response.json();
+            this.token = data.access_token;
+            localStorage.setItem('auth_token', data.access_token);
+            return true;
+        } catch (error) {
+            console.error('Token refresh failed:', error);
+            this.clearSession();
+            return false;
+        }
     }
 
     /**
@@ -86,7 +127,7 @@ class AuthManager {
             }
 
             const data = await response.json();
-            this.saveSession(data.token.access_token, data.user);
+            this.saveSession(data.token.access_token, data.token.refresh_token, data.user);
             return { success: true, user: data.user };
         } catch (error) {
             return { success: false, error: error.message };
@@ -115,7 +156,7 @@ class AuthManager {
             }
 
             const data = await response.json();
-            this.saveSession(data.token.access_token, data.user);
+            this.saveSession(data.token.access_token, data.token.refresh_token, data.user);
             return { success: true, user: data.user };
         } catch (error) {
             return { success: false, error: error.message };

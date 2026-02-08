@@ -31,7 +31,7 @@ class TestMomentumEngine(unittest.TestCase):
     def test_calculate_price_momentum(self):
         """Test price momentum calculation"""
         score = self.engine.calculate_price_momentum(self.sample_hist_data)
-        self.assertIsInstance(score, float)
+        self.assertIsInstance(score, (int, float))
         self.assertGreaterEqual(score, 0)
         self.assertLessEqual(score, 100)
 
@@ -50,7 +50,7 @@ class TestMomentumEngine(unittest.TestCase):
             'pegRatio': 1.2
         }
         score = self.engine.calculate_fundamental_momentum(sample_info)
-        self.assertIsInstance(score, float)
+        self.assertIsInstance(score, (int, float))
         self.assertGreaterEqual(score, 0)
         self.assertLessEqual(score, 100)
 

@@ -209,13 +209,15 @@ async def get_momentum_score(request: Request, ticker: str):
     """Get momentum score for a specific ticker"""
     from .validators.validators import validate_ticker
 
+    from .exceptions import InvalidTickerError
+
     try:
         # Validate ticker symbol
         ticker = validate_ticker(ticker)
 
         result = momentum_engine.calculate_momentum_score(ticker)
         return MomentumScore(**result)
-    except ValueError as e:
+    except (ValueError, InvalidTickerError) as e:
         # Input validation error
         raise HTTPException(status_code=400, detail=f"Invalid ticker: {str(e)}")
     except Exception as e:

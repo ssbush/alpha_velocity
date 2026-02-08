@@ -1,17 +1,20 @@
 import pandas as pd
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
+import logging
 from .momentum_engine import MomentumEngine
 from ..utils.data_providers import DataProvider
+
+logger = logging.getLogger(__name__)
 
 class PortfolioService:
     """Service for portfolio analysis and management"""
 
-    def __init__(self, momentum_engine: MomentumEngine = None):
-        self.momentum_engine = momentum_engine or MomentumEngine()
-        self.data_provider = DataProvider()
+    def __init__(self, momentum_engine: Optional[MomentumEngine] = None) -> None:
+        self.momentum_engine: MomentumEngine = momentum_engine or MomentumEngine()
+        self.data_provider: DataProvider = DataProvider()
 
         # Portfolio categories with target allocations
-        self.portfolio_categories = {
+        self.portfolio_categories: Dict[str, Dict[str, Any]] = {
             'Large-Cap Anchors': {
                 'tickers': ['NVDA', 'TSM', 'ASML', 'AVGO', 'MSFT', 'META', 'AAPL', 'AMD', 'GOOGL', 'TSLA', 'PLTR', 'CSCO', 'CRWV', 'ORCL', 'DT', 'AUR', 'MBLY', 'NOW'],
                 'target_allocation': 0.20,
@@ -59,7 +62,7 @@ class PortfolioService:
         category = self.portfolio_categories.get(category_name)
         return category['tickers'] if category else []
 
-    def get_all_categories(self) -> Dict:
+    def get_all_categories(self) -> Dict[str, Dict[str, Any]]:
         """Get all portfolio categories"""
         return self.portfolio_categories
 
@@ -87,7 +90,7 @@ class PortfolioService:
                 else:
                     prices_data[ticker] = 0
             except Exception as e:
-                print(f"Error fetching price for {ticker}: {e}")
+                logger.warning(f"Error fetching price for {ticker}", extra={'ticker': ticker, 'error': str(e)})
                 prices_data[ticker] = 0
 
         # Calculate portfolio values
@@ -141,7 +144,7 @@ class PortfolioService:
 
         return df, total_portfolio_value, avg_momentum_score
 
-    def get_category_analysis(self, category_name: str) -> Dict:
+    def get_category_analysis(self, category_name: str) -> Dict[str, Any]:
         """Analyze a specific portfolio category"""
         category = self.portfolio_categories.get(category_name)
         if not category:
@@ -163,7 +166,7 @@ class PortfolioService:
             'average_score': sum(score['composite_score'] for score in scores) / len(scores) if scores else 0
         }
 
-    def get_top_momentum_stocks(self, category_name: str = None, limit: int = 10) -> List[Dict]:
+    def get_top_momentum_stocks(self, category_name: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
         """Get top momentum stocks, optionally filtered by category"""
         if category_name:
             tickers = self.get_category_tickers(category_name)
@@ -183,7 +186,7 @@ class PortfolioService:
         scores.sort(key=lambda x: x['composite_score'], reverse=True)
         return scores[:limit]
 
-    def generate_watchlist(self, current_portfolio: Dict[str, int], min_score: float = 70.0) -> Dict:
+    def generate_watchlist(self, current_portfolio: Dict[str, int], min_score: float = 70.0) -> Dict[str, Any]:
         """Generate a watchlist of potential portfolio additions"""
         current_tickers = set(current_portfolio.keys())
         watchlist_by_category = {}
@@ -261,7 +264,7 @@ class PortfolioService:
                 else:
                     position_values[ticker] = 0
             except Exception as e:
-                print(f"Error fetching price for {ticker}: {e}")
+                logger.warning(f"Error fetching price for {ticker}", extra={'ticker': ticker, 'error': str(e)})
                 position_values[ticker] = 0
 
         # Calculate allocation by category based on dollar values
@@ -276,7 +279,7 @@ class PortfolioService:
 
         return category_allocation
 
-    def get_portfolio_by_categories(self, portfolio: Dict[str, int]) -> Dict:
+    def get_portfolio_by_categories(self, portfolio: Dict[str, int]) -> Dict[str, Any]:
         """
         Group portfolio holdings by category with actual vs target allocation percentages
 
@@ -304,7 +307,7 @@ class PortfolioService:
                     prices_data[ticker] = 0
                     position_values[ticker] = 0
             except Exception as e:
-                print(f"Error fetching price for {ticker}: {e}")
+                logger.warning(f"Error fetching price for {ticker}", extra={'ticker': ticker, 'error': str(e)})
                 prices_data[ticker] = 0
                 position_values[ticker] = 0
 

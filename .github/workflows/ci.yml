@@ -1,0 +1,281 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  PYTHON_VERSION: '3.11'
+  POSTGRES_DB: alphavelocity_test
+  POSTGRES_USER: test_user
+  POSTGRES_PASSWORD: test_password
+
+jobs:
+  lint:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install flake8 black isort mypy
+        pip install -r requirements.txt
+
+    - name: Run Black (code formatting check)
+      run: |
+        black --check --diff backend/
+        echo "✅ Black formatting check passed"
+
+    - name: Run isort (import sorting check)
+      run: |
+        isort --check-only --diff backend/
+        echo "✅ isort import sorting check passed"
+
+    - name: Run Flake8 (linting)
+      run: |
+        flake8 backend/ --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 backend/ --count --max-complexity=10 --max-line-length=127 --statistics
+        echo "✅ Flake8 linting passed"
+
+    - name: Run MyPy (type checking)
+      run: |
+        mypy backend/ --ignore-missing-imports --no-strict-optional
+        echo "✅ MyPy type checking passed"
+      continue-on-error: true  # Type checking is advisory for now
+
+  test:
+    name: Unit & Integration Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_DB: ${{ env.POSTGRES_DB }}
+          POSTGRES_USER: ${{ env.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-cov pytest-asyncio pytest-mock
+
+    - name: Set up test environment
+      run: |
+        cp .env.example .env
+        sed -i 's/DB_HOST=localhost/DB_HOST=localhost/g' .env
+        sed -i 's/DB_PORT=5432/DB_PORT=5432/g' .env
+        sed -i 's/DB_NAME=alphavelocity/DB_NAME=${{ env.POSTGRES_DB }}/g' .env
+        sed -i 's/DB_USER=alphavelocity/DB_USER=${{ env.POSTGRES_USER }}/g' .env
+        sed -i 's/DB_PASSWORD=alphavelocity/DB_PASSWORD=${{ env.POSTGRES_PASSWORD }}/g' .env
+        sed -i 's/REDIS_ENABLED=false/REDIS_ENABLED=true/g' .env
+
+    - name: Run database migrations
+      run: |
+        python simple_db_migration.py || echo "Migration skipped or failed"
+      env:
+        DB_HOST: localhost
+        DB_PORT: 5432
+        DB_NAME: ${{ env.POSTGRES_DB }}
+        DB_USER: ${{ env.POSTGRES_USER }}
+        DB_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
+
+    - name: Run unit tests
+      run: |
+        pytest backend/tests/ \
+          --cov=backend \
+          --cov-report=xml \
+          --cov-report=html \
+          --cov-report=term-missing \
+          --junitxml=test-results.xml \
+          -v
+      env:
+        DB_HOST: localhost
+        DB_PORT: 5432
+        DB_NAME: ${{ env.POSTGRES_DB }}
+        DB_USER: ${{ env.POSTGRES_USER }}
+        DB_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
+        REDIS_ENABLED: true
+        REDIS_HOST: localhost
+        REDIS_PORT: 6379
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+      continue-on-error: true
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: test-results
+        path: |
+          test-results.xml
+          htmlcov/
+          coverage.xml
+
+  api-tests:
+    name: API Integration Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_DB: ${{ env.POSTGRES_DB }}
+          POSTGRES_USER: ${{ env.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install httpx pytest-httpx
+
+    - name: Start API server
+      run: |
+        python -m backend.main &
+        sleep 10
+      env:
+        DB_HOST: localhost
+        DB_PORT: 5432
+        DB_NAME: ${{ env.POSTGRES_DB }}
+        DB_USER: ${{ env.POSTGRES_USER }}
+        DB_PASSWORD: ${{ env.POSTGRES_PASSWORD }}
+
+    - name: Wait for API to be ready
+      run: |
+        timeout 30 bash -c 'until curl -f http://localhost:8000/; do sleep 2; done'
+        echo "✅ API is ready"
+
+    - name: Test API endpoints
+      run: |
+        bash test_all_endpoints.sh
+      continue-on-error: false
+
+    - name: Stop API server
+      if: always()
+      run: |
+        pkill -f "python -m backend.main" || true
+
+  security:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install safety bandit
+        pip install -r requirements.txt
+
+    - name: Run Safety (dependency vulnerability check)
+      run: |
+        safety check --json || echo "⚠️  Safety check found vulnerabilities"
+      continue-on-error: true
+
+    - name: Run Bandit (security linting)
+      run: |
+        bandit -r backend/ -f json -o bandit-report.json || true
+        bandit -r backend/ -ll
+      continue-on-error: true
+
+    - name: Upload security reports
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: security-reports
+        path: |
+          bandit-report.json
+
+  build-status:
+    name: Build Status Summary
+    runs-on: ubuntu-latest
+    needs: [lint, test, api-tests, security]
+    if: always()
+
+    steps:
+    - name: Check build status
+      run: |
+        if [ "${{ needs.lint.result }}" == "success" ] && \
+           [ "${{ needs.test.result }}" == "success" ] && \
+           [ "${{ needs.api-tests.result }}" == "success" ]; then
+          echo "✅ All CI checks passed!"
+          exit 0
+        else
+          echo "❌ Some CI checks failed"
+          echo "Lint: ${{ needs.lint.result }}"
+          echo "Tests: ${{ needs.test.result }}"
+          echo "API Tests: ${{ needs.api-tests.result }}"
+          echo "Security: ${{ needs.security.result }}"
+          exit 1
+        fi

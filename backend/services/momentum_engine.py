@@ -1,12 +1,16 @@
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+from typing import Dict, Tuple, Optional, Any
 import warnings
 import time
+import logging
 warnings.filterwarnings('ignore')
 
 from ..utils.data_providers import DataProvider
 from .historical_service import HistoricalDataService
+
+logger = logging.getLogger(__name__)
 
 class MomentumEngine:
     """
@@ -19,23 +23,23 @@ class MomentumEngine:
     - Relative Momentum (10%)
     """
 
-    def __init__(self, data_provider: DataProvider = None):
-        self.weights = {
+    def __init__(self, data_provider: Optional[DataProvider] = None) -> None:
+        self.weights: Dict[str, float] = {
             'price_momentum': 0.40,
             'technical_momentum': 0.25,
             'fundamental_momentum': 0.25,
             'relative_momentum': 0.10
         }
-        self.data_provider = data_provider or DataProvider()
+        self.data_provider: DataProvider = data_provider or DataProvider()
 
-        # Simple memory cache for momentum scores (5-minute TTL)
-        self._cache = {}
-        self._cache_ttl = 300  # 5 minutes
+        # Simple memory cache for momentum scores (24 hour TTL)
+        self._cache: Dict[str, Tuple[Dict[str, Any], float]] = {}
+        self._cache_ttl: int = 86400  # 24 hours (until next trading day)
 
         # Historical data service
-        self.historical_service = HistoricalDataService()
+        self.historical_service: HistoricalDataService = HistoricalDataService()
 
-    def get_stock_data(self, ticker: str, period: str = '1y'):
+    def get_stock_data(self, ticker: str, period: str = '1y') -> Tuple[Optional[pd.DataFrame], Optional[Dict[str, Any]]]:
         """Fetch stock data via data provider"""
         return self.data_provider.get_stock_data(ticker, period)
 
@@ -124,7 +128,7 @@ class MomentumEngine:
         technical_score = (rsi_score * 0.4) + (volume_score * 0.3) + (roc_score * 0.3)
         return min(100, max(0, technical_score))
 
-    def calculate_fundamental_momentum(self, stock_info: dict) -> float:
+    def calculate_fundamental_momentum(self, stock_info: Dict[str, Any]) -> float:
         """Calculate fundamental momentum component (25% of total score)"""
         try:
             forward_pe = stock_info.get('forwardPE', 0)
@@ -175,7 +179,7 @@ class MomentumEngine:
         except Exception:
             return 50
 
-    def calculate_historical_momentum_score(self, ticker: str, end_date: str) -> dict:
+    def calculate_historical_momentum_score(self, ticker: str, end_date: str) -> Dict[str, Any]:
         """Calculate momentum score for a ticker as of a specific historical date"""
         from datetime import datetime, timedelta
         import yfinance as yf
@@ -293,7 +297,7 @@ class MomentumEngine:
         except Exception:
             return 50
 
-    def calculate_momentum_score(self, ticker: str) -> dict:
+    def calculate_momentum_score(self, ticker: str) -> Dict[str, Any]:
         """Calculate comprehensive momentum score for a ticker"""
         # Check cache first
         cache_key = f"momentum_{ticker}"
@@ -370,18 +374,22 @@ class MomentumEngine:
                 self.historical_service.record_momentum_score(ticker, result)
             except Exception as e:
                 # Don't fail the main calculation if historical recording fails
-                print(f"Warning: Failed to record historical data for {ticker}: {e}")
+                logger.warning(
+                    f"Failed to record historical data for {ticker}",
+                    extra={'ticker': ticker, 'error': str(e)},
+                    exc_info=True
+                )
 
         return result
 
-    def clear_cache(self):
+    def clear_cache(self) -> None:
         """Clear the momentum score cache"""
         self._cache.clear()
 
-    def get_cache_stats(self):
+    def get_cache_stats(self) -> Dict[str, int]:
         """Get cache statistics"""
-        current_time = time.time()
-        valid_entries = sum(1 for _, (_, cache_time) in self._cache.items()
+        current_time: float = time.time()
+        valid_entries: int = sum(1 for _, (_, cache_time) in self._cache.items()
                           if current_time - cache_time < self._cache_ttl)
         return {
             'total_entries': len(self._cache),

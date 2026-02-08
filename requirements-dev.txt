@@ -1,0 +1,42 @@
+# Development and Testing Dependencies
+# Install with: pip install -r requirements-dev.txt
+
+# Testing
+pytest==7.4.3
+pytest-cov==4.1.0
+pytest-asyncio==0.21.1
+pytest-mock==3.12.0
+pytest-xdist==3.5.0  # Parallel test execution
+pytest-timeout==2.2.0  # Test timeout handling
+pytest-watch==4.2.0  # Watch mode for tests
+httpx==0.25.2  # HTTP client for testing
+
+# Code Quality
+black==23.12.1  # Code formatting
+isort==5.13.2  # Import sorting
+flake8==6.1.0  # Linting
+mypy==1.7.1  # Static type checking
+pylint==3.0.3  # Additional linting
+
+# Security
+safety==2.3.5  # Dependency vulnerability scanning
+bandit==1.7.6  # Security linting
+
+# Coverage
+coverage[toml]==7.4.0  # Coverage measurement
+
+# Documentation
+sphinx==7.2.6  # Documentation generation
+sphinx-rtd-theme==2.0.0  # ReadTheDocs theme
+
+# Development tools
+ipython==8.19.0  # Enhanced Python shell
+ipdb==0.13.13  # Debugger
+pre-commit==3.6.0  # Git hooks framework
+
+# Performance profiling
+memory-profiler==0.61.0  # Memory profiling
+py-spy==0.3.14  # Sampling profiler
+
+# API development
+httpie==3.2.2  # CLI HTTP client for testing

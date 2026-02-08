@@ -1,0 +1,66 @@
+[flake8]
+# Maximum line length
+max-line-length = 127
+
+# Maximum cyclomatic complexity
+max-complexity = 10
+
+# Exclude patterns
+exclude =
+    .git,
+    __pycache__,
+    .pytest_cache,
+    .mypy_cache,
+    .venv,
+    venv,
+    env,
+    build,
+    dist,
+    *.egg-info,
+    migrations,
+    node_modules,
+    htmlcov
+
+# Ignore specific errors
+ignore =
+    # E203: whitespace before ':' (conflicts with black)
+    E203,
+    # E266: too many leading '#' for block comment
+    E266,
+    # E501: line too long (handled by max-line-length)
+    E501,
+    # W503: line break before binary operator (conflicts with black)
+    W503,
+    # W504: line break after binary operator
+    W504
+
+# Select specific error codes to check
+select =
+    # Pyflakes errors
+    F,
+    # Pycodestyle errors
+    E,
+    # Pycodestyle warnings
+    W,
+    # McCabe complexity
+    C90
+
+# Per-file ignores
+per-file-ignores =
+    # Ignore unused imports in __init__.py files
+    __init__.py:F401,F403
+    # Ignore in test files
+    tests/*:F401,F811
+
+# Enable additional plugins
+enable-extensions =
+    # Complexity
+    mccabe
+
+# Reporting
+count = True
+statistics = True
+show-source = True
+
+# Formatting
+format = %(path)s:%(row)d:%(col)d: %(code)s %(text)s

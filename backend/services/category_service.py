@@ -36,65 +36,80 @@ class CategoryService:
         return self.conn
 
     def get_all_categories(self) -> List[Dict]:
-        """Get all categories with their ticker mappings"""
+        """Get all categories with their ticker mappings - optimized with single query"""
         conn = self._get_connection()
         cursor = conn.cursor()
 
         try:
-            # Get all categories
+            # Single optimized query with JOIN to avoid N+1 problem
             cursor.execute("""
-                SELECT id, name, description, target_allocation_pct, benchmark_ticker, is_active
-                FROM categories
-                WHERE is_active = true
-                ORDER BY target_allocation_pct DESC, name
+                SELECT
+                    c.id, c.name, c.description, c.target_allocation_pct, c.benchmark_ticker,
+                    cs.ticker, sm.company_name
+                FROM categories c
+                LEFT JOIN category_securities cs ON c.id = cs.category_id
+                LEFT JOIN security_master sm ON cs.security_id = sm.id
+                WHERE c.is_active = true
+                ORDER BY c.target_allocation_pct DESC, c.name, cs.ticker
             """)
-            categories = cursor.fetchall()
+            rows = cursor.fetchall()
 
+            # Group by category and collect all unique tickers
+            categories_map = {}
+            all_tickers = set()
+
+            for row in rows:
+                cat_id, name, description, target_alloc, benchmark, ticker, company_name = row
+
+                if cat_id not in categories_map:
+                    categories_map[cat_id] = {
+                        'id': cat_id,
+                        'name': name,
+                        'description': description,
+                        'target_allocation_pct': float(target_alloc) if target_alloc else 0,
+                        'benchmark': benchmark,
+                        'tickers_list': []
+                    }
+
+                if ticker:
+                    categories_map[cat_id]['tickers_list'].append((ticker, company_name))
+                    all_tickers.add(ticker)
+
+            # Batch-fetch all momentum scores at once (uses 24-hour cache)
+            momentum_scores = {}
+            for ticker in all_tickers:
+                try:
+                    momentum_data = self.momentum_engine.calculate_momentum_score(ticker)
+                    momentum_scores[ticker] = {
+                        'score': momentum_data.get('composite_score', 0),
+                        'rating': momentum_data.get('rating', 'N/A')
+                    }
+                except:
+                    momentum_scores[ticker] = {'score': 0, 'rating': 'N/A'}
+
+            # Build final result with pre-fetched scores
             result = []
-            for cat in categories:
-                category_id, name, description, target_alloc, benchmark, is_active = cat
-
-                # Get tickers for this category
-                cursor.execute("""
-                    SELECT cs.ticker, sm.company_name
-                    FROM category_securities cs
-                    LEFT JOIN security_master sm ON cs.security_id = sm.id
-                    WHERE cs.category_id = %s
-                    ORDER BY cs.ticker
-                """, (category_id,))
-
-                tickers = cursor.fetchall()
-
-                # Build ticker details with momentum scores
+            for cat_id, cat_data in categories_map.items():
                 ticker_details = []
-                for ticker, company_name in tickers:
-                    try:
-                        momentum_data = self.momentum_engine.calculate_momentum_score(ticker)
-                        ticker_details.append({
-                            'ticker': ticker,
-                            'company_name': company_name,
-                            'momentum_score': momentum_data.get('composite_score', 0),
-                            'rating': momentum_data.get('rating', 'N/A')
-                        })
-                    except Exception as e:
-                        # If momentum calculation fails, still include ticker with no score
-                        ticker_details.append({
-                            'ticker': ticker,
-                            'company_name': company_name,
-                            'momentum_score': 0,
-                            'rating': 'N/A'
-                        })
+                for ticker, company_name in cat_data['tickers_list']:
+                    score_data = momentum_scores.get(ticker, {'score': 0, 'rating': 'N/A'})
+                    ticker_details.append({
+                        'ticker': ticker,
+                        'company_name': company_name,
+                        'momentum_score': score_data['score'],
+                        'rating': score_data['rating']
+                    })
 
                 result.append({
-                    'id': category_id,
-                    'name': name,
-                    'description': description,
-                    'target_allocation': float(target_alloc) / 100 if target_alloc else 0,
-                    'target_allocation_pct': float(target_alloc) if target_alloc else 0,
-                    'benchmark': benchmark,
-                    'tickers': [t[0] for t in tickers],
+                    'id': cat_data['id'],
+                    'name': cat_data['name'],
+                    'description': cat_data['description'],
+                    'target_allocation': cat_data['target_allocation_pct'] / 100,
+                    'target_allocation_pct': cat_data['target_allocation_pct'],
+                    'benchmark': cat_data['benchmark'],
+                    'tickers': [t[0] for t in cat_data['tickers_list']],
                     'ticker_details': ticker_details,
-                    'ticker_count': len(tickers)
+                    'ticker_count': len(cat_data['tickers_list'])
                 })
 
             return result

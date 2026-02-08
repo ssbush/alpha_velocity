@@ -3,7 +3,7 @@ User Service
 Handles user registration, authentication, and profile management
 """
 
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from datetime import datetime
@@ -15,8 +15,8 @@ from ..auth import get_password_hash, verify_password, UserRegistration, UserPro
 class UserService:
     """Service for user management operations"""
 
-    def __init__(self, db_session: Session):
-        self.db = db_session
+    def __init__(self, db_session: Session) -> None:
+        self.db: Session = db_session
 
     def create_user(self, registration: UserRegistration) -> User:
         """
@@ -176,7 +176,7 @@ class UserService:
         self.db.commit()
         return True
 
-    def _create_default_portfolio(self, user_id: int):
+    def _create_default_portfolio(self, user_id: int) -> None:
         """Create a default portfolio for new user"""
         default_portfolio = Portfolio(
             user_id=user_id,
@@ -194,7 +194,7 @@ class UserService:
             Portfolio.is_active == True
         ).order_by(Portfolio.created_at.desc()).all()
 
-    def get_user_stats(self, user_id: int) -> dict:
+    def get_user_stats(self, user_id: int) -> Dict[str, Any]:
         """Get user statistics"""
         portfolios = self.get_user_portfolios(user_id)
 

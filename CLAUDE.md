@@ -18,6 +18,8 @@ AlphaVelocity is a modern AI-powered momentum scoring engine for stock analysis 
   - `daily_scheduler.py`: Automated daily cache updates
 - **Models** (`models/`): Pydantic data models and database schemas
 - **Database Integration**: PostgreSQL with SQLAlchemy ORM
+- **Logging** (`config/logging_config.py`): Structured logging with JSON/colored formatters
+- **Middleware** (`middleware/`): Request/response logging, CORS
 
 ### Frontend (`frontend/`)
 - **Progressive Web App**: Mobile-optimized interface
@@ -150,12 +152,97 @@ psycopg2-binary==2.9.9    # PostgreSQL adapter
 alembic==1.12.1           # Database migrations
 ```
 
-### Security & Auth (planned)
+### Security & Auth
 ```
 bcrypt==4.0.1             # Password hashing
 python-jose[cryptography]==3.3.0  # JWT tokens
 passlib[bcrypt]==1.7.4    # Password utilities
 ```
+
+### Development & Testing
+```
+mypy==1.8.0               # Static type checking
+pytest==7.4.3             # Testing framework
+pytest-asyncio==0.21.1    # Async test support
+pytest-cov==4.1.0         # Coverage reporting
+```
+
+## Logging
+
+AlphaVelocity uses a comprehensive structured logging system for monitoring and debugging.
+
+### Configuration
+Logging is configured via environment variables:
+- `LOG_LEVEL`: DEBUG, INFO, WARNING, ERROR, CRITICAL (default: INFO)
+- `LOG_DIR`: Log files directory (default: logs/)
+- `JSON_LOGS`: Enable JSON formatting for production (default: false)
+
+### Log Files
+- `logs/alphavelocity.log`: All application logs (rotates at 10MB, 5 backups)
+- `logs/errors.log`: Error-only logs (rotates at 10MB, 5 backups)
+
+### Using Logging in Code
+```python
+import logging
+from backend.config.logging_config import PerformanceLogger
+
+logger = logging.getLogger(__name__)
+
+# Simple logging
+logger.info("Processing portfolio analysis")
+
+# Structured logging with context
+logger.info(
+    "Calculated momentum score",
+    extra={'ticker': 'NVDA', 'score': 85.5}
+)
+
+# Performance logging
+with PerformanceLogger(logger, "Calculate momentum", ticker="NVDA"):
+    # Your code here
+    pass  # Automatically logs duration
+```
+
+### Request Tracing
+All API requests include:
+- `X-Request-ID` header for correlation
+- `X-Process-Time` header showing duration
+- Automatic logging of slow requests (>1000ms)
+
+## CORS Security
+
+AlphaVelocity uses environment-based CORS configuration for secure cross-origin requests.
+
+### Configuration
+CORS is configured via environment variables in `.env`:
+
+```bash
+# Required for production
+ENVIRONMENT=production
+CORS_ORIGINS=https://app.alphavelocity.com,https://www.alphavelocity.com
+
+# Optional settings
+CORS_ALLOW_CREDENTIALS=true
+CORS_ALLOW_METHODS=*
+CORS_ALLOW_HEADERS=*
+CORS_MAX_AGE=600
+```
+
+### Security Features
+- **Production Validation**: Blocks wildcard origins in production
+- **Format Validation**: Ensures origins start with http:// or https://
+- **Automatic Logging**: All CORS configuration logged
+- **Environment-Aware**: Different settings for dev/staging/production
+
+### Usage
+```python
+from backend.config.cors_config import setup_cors
+
+# In main.py (already configured)
+setup_cors(app)  # Automatically sets up based on environment
+```
+
+See `CORS_SECURITY.md` for detailed documentation.
 
 ## File Structure
 
@@ -166,12 +253,16 @@ alpha_velocity/
 │   ├── services/        # Business logic
 │   ├── models/          # Data models
 │   ├── database/        # Database config
+│   ├── middleware/      # Request/response middleware
+│   ├── config/          # Configuration (logging, etc.)
+│   ├── auth.py          # Authentication utilities
 │   └── utils/           # Utilities
 ├── frontend/            # Web interface
 │   ├── index.html       # Main page
 │   ├── css/            # Styles
 │   ├── js/             # JavaScript
 │   └── assets/         # Static assets
+├── logs/               # Application logs (gitignored)
 ├── data/               # Data files
 ├── scripts/            # Utility scripts
 ├── tests/              # Test files

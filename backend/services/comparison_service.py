@@ -1,7 +1,10 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 import pandas as pd
 from datetime import datetime
+import logging
 from .portfolio_service import PortfolioService
+
+logger = logging.getLogger(__name__)
 from ..models.comparison import (
     PortfolioComparison, PortfolioSummary, AllocationComparison,
     HoldingComparison, PerformanceComparison, DiversificationMetrics
@@ -11,8 +14,8 @@ from ..models.portfolio import PortfolioHolding
 class ComparisonService:
     """Service for comparing portfolios side-by-side"""
 
-    def __init__(self, portfolio_service: PortfolioService):
-        self.portfolio_service = portfolio_service
+    def __init__(self, portfolio_service: PortfolioService) -> None:
+        self.portfolio_service: PortfolioService = portfolio_service
 
     def compare_portfolios(self, portfolio_a: Dict[str, int], portfolio_b: Dict[str, int],
                           portfolio_a_id: str = "custom", portfolio_b_id: str = "model") -> PortfolioComparison:
@@ -135,7 +138,10 @@ class ComparisonService:
                     if category:
                         category_values[category] = category_values.get(category, 0) + value
             except Exception as e:
-                print(f"Error processing {ticker}: {e}")
+                logger.warning(
+                    f"Error processing {ticker}",
+                    extra={'ticker': ticker, 'error': str(e)}
+                )
                 continue
 
         # Convert to percentages

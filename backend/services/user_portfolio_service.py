@@ -442,7 +442,11 @@ class UserPortfolioService:
 
     def get_all_portfolios_with_summaries(self, user_id: int) -> List[Dict]:
         """Get all portfolios for user with brief summaries including current values"""
-        import yfinance as yf
+        from ..services.daily_cache_service import DailyCacheService
+
+        # Use daily cached prices instead of making live API calls
+        cache_service = DailyCacheService()
+        cached_prices = cache_service.get_cached_prices()
 
         portfolios = self.get_user_portfolios(user_id)
         summaries = []
@@ -454,20 +458,20 @@ class UserPortfolioService:
             total_cost_basis = 0
             total_current_value = 0
 
-            # Calculate current values
+            # Calculate current values using cached prices
             for holding in holdings:
                 cost_basis = holding.get('total_cost_basis') or 0
                 total_cost_basis += cost_basis
 
-                # Fetch current price
-                try:
-                    ticker = holding['ticker']
-                    shares = holding['shares']
-                    stock = yf.Ticker(ticker)
-                    current_price = stock.info.get('currentPrice') or stock.info.get('regularMarketPrice', 0)
+                # Use cached price from daily cache
+                ticker = holding['ticker']
+                shares = holding['shares']
+                current_price = cached_prices.get(ticker, 0)
+
+                if current_price > 0:
                     total_current_value += current_price * shares
-                except:
-                    # If price fetch fails, use cost basis as fallback
+                else:
+                    # If no cached price, use cost basis as fallback
                     total_current_value += cost_basis
 
             # Calculate return

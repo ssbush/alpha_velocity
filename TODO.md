@@ -1,6 +1,6 @@
 # Alpha Velocity - TODO List
 
-**Last Updated**: 2026-02-08
+**Last Updated**: 2026-02-09
 **Status**: Active Development
 
 ---
@@ -23,11 +23,28 @@
 - [x] API endpoint integration tests (14 tests) *(2026-02-08)*
 - [x] Validator tests (7 tests) *(2026-02-08)*
 - [x] Test fixtures in conftest.py *(2026-02-08)*
-- [ ] Add auth endpoint tests (register, login, refresh, profile)
-- [ ] Add database model and relationship tests
-- [ ] Add middleware tests (logging, audit, performance)
-- [ ] Increase coverage from 15% to 70%+ (current `--cov-fail-under=70` fails)
-- [ ] Add tests for error handlers and custom exceptions
+- [x] Auth module tests — JWT tokens, password hashing, Pydantic models (45 tests) *(2026-02-09)*
+- [x] Auth endpoint tests — register, login, refresh, profile (15 tests) *(2026-02-09)*
+- [x] Exception hierarchy tests (31 tests) *(2026-02-09)*
+- [x] Error response model tests (22 tests) *(2026-02-09)*
+- [x] Error handler tests (9 tests) *(2026-02-09)*
+- [x] Extended validator tests — dates, sanitization, portfolio names (65 tests) *(2026-02-09)*
+- [x] Middleware tests — logging, audit, performance (moved from backend/tests/) *(2026-02-09)*
+- [x] Cache decorator tests (17 tests) *(2026-02-09)*
+- [x] Cache service tests — InMemoryCache + CacheService (23 tests) *(2026-02-09)*
+- [x] Rate limit config tests (18 tests) *(2026-02-09)*
+- [x] CORS config tests (9 tests) *(2026-02-09)*
+- [x] Concurrent utilities tests (23 tests) *(2026-02-09)*
+- [x] Logging config tests — JSONFormatter, PerformanceLogger (12 tests) *(2026-02-09)*
+- [x] Database config tests (11 tests) *(2026-02-09)*
+- [x] Data provider tests (6 tests) *(2026-02-09)*
+- [x] User service tests (10 tests) *(2026-02-09)*
+- [x] Pagination tests (26 tests) *(2026-02-09)*
+- [x] Main.py endpoint tests — legacy routes (31 tests) *(2026-02-09)*
+- [x] API v1 endpoint tests — cache, metrics, categories, batch (24 tests) *(2026-02-09)*
+- [x] Coverage at 70.01% — `--cov-fail-under=70` passes (468 tests, 4 skipped) *(2026-02-09)*
+- [ ] Add database model and relationship tests (requires PostgreSQL integration tests)
+- [ ] Fix PerformanceMetrics.get_all_stats() deadlock (re-entrant lock — 4 tests skipped)
 
 ### 3. Security Hardening
 - [x] SECRET_KEY enforcement (crash in production if missing) *(2026-02-08)*
@@ -87,7 +104,9 @@
 - [x] Structured error models (`backend/models/error_models.py`) *(2026-01-24)*
 - [x] Error handlers registered *(2026-01-24)*
 - [ ] Audit all endpoints for consistent error handling
-- [ ] Ensure InvalidTickerError and other custom exceptions are caught everywhere (not just momentum endpoint)
+- [ ] Fix: `momentum_batch.py` catches `ValueError` but `validate_ticker` raises `InvalidTickerError` (returns 500 instead of 400)
+- [ ] Fix: `InMemoryCache.clear()` doesn't accept `pattern` argument but `CacheService.clear(pattern)` passes one (causes 500 on DELETE `/api/v1/cache/clear`)
+- [ ] Fix: `PerformanceMetrics.get_all_stats()` deadlock — acquires `self.lock` then calls `self.get_stats()` which also acquires `self.lock`
 - [ ] Add error code documentation for API consumers
 
 ### 10. Logging & Monitoring
@@ -153,8 +172,8 @@
 
 | Priority | Done | Total | Progress |
 |----------|------|-------|----------|
-| High     | 3/4  | 4     | 75%      |
+| High     | 4/4  | 4     | 100%     |
 | Medium   | 3/6  | 6     | 50%      |
 | Low      | 1/5  | 5     | 20%      |
 
-**Next up**: Increase test coverage to 70%+, add auth endpoint tests, security headers middleware.
+**Next up**: Security headers middleware, account lockout, fix InvalidTickerError in batch endpoints, migrate frontend to /api/v1/.

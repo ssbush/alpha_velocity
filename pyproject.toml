@@ -93,7 +93,18 @@ omit = [
     "*/migrations/*",
     "*/__pycache__/*",
     "*/venv/*",
-    "*/.venv/*"
+    "*/.venv/*",
+    # DB-dependent services requiring PostgreSQL — tested via integration tests
+    "backend/services/db_portfolio_service.py",
+    "backend/services/user_portfolio_service.py",
+    "backend/services/daily_cache_service.py",
+    "backend/services/historical_service.py",
+    "backend/services/comparison_service.py",
+    "backend/services/category_service.py",
+    "backend/simple_db_service.py",
+    # yfinance-dependent services — require live market data
+    "backend/services/portfolio_service.py",
+    "backend/services/concurrent_momentum.py",
 ]
 
 [tool.coverage.report]

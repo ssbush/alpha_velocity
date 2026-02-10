@@ -7,6 +7,7 @@ import os
 # Initialize logging first (before other imports)
 from .config.logging_config import setup_logging
 from .config.cors_config import setup_cors
+from .config.security_headers_config import setup_security_headers
 from .config.rate_limit_config import (
     limiter,
     rate_limit_exceeded_handler,
@@ -106,6 +107,9 @@ app = FastAPI(
 
 # Setup secure CORS middleware (environment-based configuration)
 setup_cors(app)
+
+# Setup security response headers (HSTS, CSP, X-Frame-Options, etc.)
+setup_security_headers(app)
 
 # Add middleware stack (order matters - last added is executed first)
 # 1. Performance monitoring (outermost - tracks total time)

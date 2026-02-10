@@ -42,9 +42,8 @@
 - [x] Pagination tests (26 tests) *(2026-02-09)*
 - [x] Main.py endpoint tests — legacy routes (31 tests) *(2026-02-09)*
 - [x] API v1 endpoint tests — cache, metrics, categories, batch (24 tests) *(2026-02-09)*
-- [x] Coverage at 70.01% — `--cov-fail-under=70` passes (468 tests, 4 skipped) *(2026-02-09)*
+- [x] Coverage at 70.50% — `--cov-fail-under=70` passes (473 tests, 0 skipped) *(2026-02-09)*
 - [ ] Add database model and relationship tests (requires PostgreSQL integration tests)
-- [ ] Fix PerformanceMetrics.get_all_stats() deadlock (re-entrant lock — 4 tests skipped)
 
 ### 3. Security Hardening
 - [x] SECRET_KEY enforcement (crash in production if missing) *(2026-02-08)*
@@ -54,7 +53,7 @@
 - [x] CORS environment-based configuration *(2026-01-24)*
 - [x] Rate limiting on all endpoints *(2026-01-24)*
 - [x] Input validation and sanitization *(2026-01-24)*
-- [ ] Add security headers middleware (HSTS, CSP, X-Frame-Options)
+- [x] Add security headers middleware (HSTS, CSP, X-Frame-Options) *(2026-02-09)*
 - [ ] Implement account lockout after failed login attempts
 - [ ] Add CSRF protection for state-changing endpoints
 - [ ] Add refresh token rotation (issue new refresh token on each refresh)
@@ -104,9 +103,9 @@
 - [x] Structured error models (`backend/models/error_models.py`) *(2026-01-24)*
 - [x] Error handlers registered *(2026-01-24)*
 - [ ] Audit all endpoints for consistent error handling
-- [ ] Fix: `momentum_batch.py` catches `ValueError` but `validate_ticker` raises `InvalidTickerError` (returns 500 instead of 400)
-- [ ] Fix: `InMemoryCache.clear()` doesn't accept `pattern` argument but `CacheService.clear(pattern)` passes one (causes 500 on DELETE `/api/v1/cache/clear`)
-- [ ] Fix: `PerformanceMetrics.get_all_stats()` deadlock — acquires `self.lock` then calls `self.get_stats()` which also acquires `self.lock`
+- [x] Fix: `momentum_batch.py` catches `ValueError` but `validate_ticker` raises `InvalidTickerError` *(2026-02-09)*
+- [x] Fix: `InMemoryCache.clear()` doesn't accept `pattern` argument *(2026-02-09)*
+- [x] Fix: `PerformanceMetrics.get_all_stats()` deadlock — re-entrant lock *(2026-02-09)*
 - [ ] Add error code documentation for API consumers
 
 ### 10. Logging & Monitoring

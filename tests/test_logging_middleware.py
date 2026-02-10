@@ -220,7 +220,6 @@ class TestPerformanceMiddleware:
         assert stats.get('count', 0) == 0
 
 
-@pytest.mark.skip(reason="Deadlock in PerformanceMetrics.get_all_stats() — re-entrant lock acquisition")
 @pytest.mark.integration
 class TestMetricsAPI:
     """Test metrics API endpoints."""

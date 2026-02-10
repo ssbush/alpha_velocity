@@ -12,6 +12,7 @@ import logging
 
 from ...services.concurrent_momentum import ConcurrentMomentumEngine
 from ...validators.validators import validate_ticker
+from ...exceptions import InvalidTickerError
 from ...config.rate_limit_config import limiter, RateLimits
 
 logger = logging.getLogger(__name__)
@@ -83,7 +84,7 @@ async def calculate_batch_momentum(
         for ticker in batch_request.tickers:
             try:
                 validated_tickers.append(validate_ticker(ticker))
-            except ValueError as e:
+            except (ValueError, InvalidTickerError) as e:
                 logger.warning(f"Invalid ticker '{ticker}': {e}")
                 # Skip invalid tickers
                 continue
@@ -186,9 +187,9 @@ async def get_top_from_batch(
         for ticker in batch_request.tickers:
             try:
                 validated_tickers.append(validate_ticker(ticker))
-            except ValueError:
+            except (ValueError, InvalidTickerError):
                 continue
-        
+
         if not validated_tickers:
             raise HTTPException(status_code=400, detail="No valid tickers")
         
@@ -267,9 +268,9 @@ async def compare_sequential_vs_concurrent(
         for ticker in ticker_list:
             try:
                 validated.append(validate_ticker(ticker))
-            except ValueError:
+            except (ValueError, InvalidTickerError):
                 continue
-        
+
         if len(validated) < 2:
             raise HTTPException(
                 status_code=400,

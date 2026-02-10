@@ -68,6 +68,62 @@ class PerformanceMetrics:
             if status_code >= 500:
                 metrics['errors'] += 1
 
+    def _get_stats_unlocked(self, endpoint: str) -> Dict:
+        """
+        Get statistics for an endpoint (caller must hold the lock).
+
+        Args:
+            endpoint: Endpoint path
+
+        Returns:
+            Dictionary with statistics
+        """
+        if endpoint not in self.metrics:
+            return {}
+
+        metrics = self.metrics[endpoint]
+        durations = list(metrics['durations'])
+
+        if not durations:
+            return {
+                'endpoint': endpoint,
+                'count': metrics['count'],
+                'error_rate': 0.0
+            }
+
+        # Calculate statistics
+        avg_duration = sum(durations) / len(durations)
+        min_duration = min(durations)
+        max_duration = max(durations)
+
+        # Calculate percentiles
+        sorted_durations = sorted(durations)
+        p50_idx = int(len(sorted_durations) * 0.50)
+        p95_idx = int(len(sorted_durations) * 0.95)
+        p99_idx = int(len(sorted_durations) * 0.99)
+
+        p50 = sorted_durations[p50_idx] if p50_idx < len(sorted_durations) else 0
+        p95 = sorted_durations[p95_idx] if p95_idx < len(sorted_durations) else 0
+        p99 = sorted_durations[p99_idx] if p99_idx < len(sorted_durations) else 0
+
+        # Calculate error rate
+        error_rate = (metrics['errors'] / metrics['count']) * 100 if metrics['count'] > 0 else 0
+
+        return {
+            'endpoint': endpoint,
+            'count': metrics['count'],
+            'avg_duration_ms': round(avg_duration, 2),
+            'min_duration_ms': round(min_duration, 2),
+            'max_duration_ms': round(max_duration, 2),
+            'p50_ms': round(p50, 2),
+            'p95_ms': round(p95, 2),
+            'p99_ms': round(p99, 2),
+            'status_codes': dict(metrics['status_codes']),
+            'error_count': metrics['errors'],
+            'error_rate_percent': round(error_rate, 2),
+            'sample_size': len(durations)
+        }
+
     def get_stats(self, endpoint: str) -> Dict:
         """
         Get statistics for an endpoint.
@@ -79,51 +135,7 @@ class PerformanceMetrics:
             Dictionary with statistics
         """
         with self.lock:
-            if endpoint not in self.metrics:
-                return {}
-
-            metrics = self.metrics[endpoint]
-            durations = list(metrics['durations'])
-
-            if not durations:
-                return {
-                    'endpoint': endpoint,
-                    'count': metrics['count'],
-                    'error_rate': 0.0
-                }
-
-            # Calculate statistics
-            avg_duration = sum(durations) / len(durations)
-            min_duration = min(durations)
-            max_duration = max(durations)
-
-            # Calculate percentiles
-            sorted_durations = sorted(durations)
-            p50_idx = int(len(sorted_durations) * 0.50)
-            p95_idx = int(len(sorted_durations) * 0.95)
-            p99_idx = int(len(sorted_durations) * 0.99)
-
-            p50 = sorted_durations[p50_idx] if p50_idx < len(sorted_durations) else 0
-            p95 = sorted_durations[p95_idx] if p95_idx < len(sorted_durations) else 0
-            p99 = sorted_durations[p99_idx] if p99_idx < len(sorted_durations) else 0
-
-            # Calculate error rate
-            error_rate = (metrics['errors'] / metrics['count']) * 100 if metrics['count'] > 0 else 0
-
-            return {
-                'endpoint': endpoint,
-                'count': metrics['count'],
-                'avg_duration_ms': round(avg_duration, 2),
-                'min_duration_ms': round(min_duration, 2),
-                'max_duration_ms': round(max_duration, 2),
-                'p50_ms': round(p50, 2),
-                'p95_ms': round(p95, 2),
-                'p99_ms': round(p99, 2),
-                'status_codes': dict(metrics['status_codes']),
-                'error_count': metrics['errors'],
-                'error_rate_percent': round(error_rate, 2),
-                'sample_size': len(durations)
-            }
+            return self._get_stats_unlocked(endpoint)
 
     def get_all_stats(self) -> List[Dict]:
         """
@@ -134,7 +146,7 @@ class PerformanceMetrics:
         """
         with self.lock:
             return [
-                self.get_stats(endpoint)
+                self._get_stats_unlocked(endpoint)
                 for endpoint in self.metrics.keys()
             ]
 

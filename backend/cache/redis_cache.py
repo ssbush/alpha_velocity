@@ -89,10 +89,17 @@ class InMemoryCache:
         """Check if key exists"""
         return self.get(key) is not None
     
-    def clear(self) -> bool:
-        """Clear all cache"""
-        self._cache.clear()
-        self._ttls.clear()
+    def clear(self, pattern: str = None) -> bool:
+        """Clear cache keys matching pattern, or all keys if pattern is None"""
+        if pattern is None or pattern == "*":
+            self._cache.clear()
+            self._ttls.clear()
+        else:
+            from fnmatch import fnmatch
+            keys_to_delete = [k for k in self._cache if fnmatch(k, pattern)]
+            for k in keys_to_delete:
+                del self._cache[k]
+                self._ttls.pop(k, None)
         return True
     
     def keys(self, pattern: str = "*") -> list:

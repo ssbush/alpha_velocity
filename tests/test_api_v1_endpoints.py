@@ -61,21 +61,19 @@ class TestV1CacheAdminEndpoints:
         assert "total" in data
         assert "count" in data["total"]
 
-    def test_cache_clear_returns_error_in_memory(self):
-        # InMemoryCache.clear() doesn't accept pattern arg (pre-existing bug)
-        # The DELETE endpoint always passes pattern, so it 500s with in-memory backend
+    def test_cache_clear_delete_method(self):
         resp = client.request("DELETE", "/api/v1/cache/clear")
-        # Expect 500 due to known InMemoryCache.clear(pattern) bug
-        assert resp.status_code == 500
+        assert resp.status_code == 200
 
 
 class TestV1MetricsEndpoints:
-    """Tests for /api/v1/metrics/ endpoints.
+    """Tests for /api/v1/metrics/ endpoints."""
 
-    Note: get_performance_stats() without an endpoint arg triggers a deadlock
-    in PerformanceMetrics.get_all_stats() (re-entrant lock). All tests that
-    call metrics endpoints must pass an explicit ?endpoint= param to avoid it.
-    """
+    def test_performance_metrics_all(self):
+        resp = client.get("/api/v1/metrics/performance")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "success" in data
 
     def test_performance_metrics_with_endpoint(self):
         resp = client.get("/api/v1/metrics/performance?endpoint=/")
@@ -174,8 +172,7 @@ class TestV1MomentumBatchValidation:
             "/api/v1/momentum/batch",
             json={"tickers": ["@@@", "!!!"]},
         )
-        # InvalidTickerError not caught by ValueError handler — returns 500
-        assert resp.status_code in (400, 500)
+        assert resp.status_code == 400
 
     def test_batch_top_empty_tickers(self):
         resp = client.post(
@@ -189,7 +186,7 @@ class TestV1MomentumBatchValidation:
             "/api/v1/momentum/batch/top",
             json={"tickers": ["###"]},
         )
-        assert resp.status_code in (400, 500)
+        assert resp.status_code == 400
 
 
 class TestV1Init:

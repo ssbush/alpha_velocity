@@ -95,6 +95,19 @@ class AuthenticationError(AlphaVelocityException):
         )
 
 
+class AccountLockedError(AlphaVelocityException):
+    """Raised when account is locked due to too many failed login attempts."""
+
+    def __init__(self, retry_after_seconds: int):
+        super().__init__(
+            message=f"Account is locked due to too many failed login attempts. Try again in {retry_after_seconds} seconds.",
+            error_code="ACCOUNT_LOCKED",
+            status_code=403,
+            details={"retry_after_seconds": retry_after_seconds}
+        )
+        self.retry_after_seconds = retry_after_seconds
+
+
 class AuthorizationError(AlphaVelocityException):
     """Raised when user lacks permission."""
 
@@ -351,6 +364,11 @@ ERROR_CODES = {
         "description": "Authentication required or failed",
         "status_code": 401,
         "user_action": "Provide valid credentials"
+    },
+    "ACCOUNT_LOCKED": {
+        "description": "Account locked due to too many failed login attempts",
+        "status_code": 403,
+        "user_action": "Wait for the lockout period to expire and try again"
     },
     "AUTHORIZATION_ERROR": {
         "description": "Insufficient permissions",

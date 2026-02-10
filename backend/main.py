@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends, status, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List
 import logging
@@ -14,6 +15,7 @@ from .config.rate_limit_config import (
     RateLimits,
     log_rate_limit_config
 )
+from .config.account_lockout_config import login_attempt_tracker, log_lockout_config
 
 # Setup logging based on environment
 setup_logging(
@@ -135,6 +137,9 @@ app.state.limiter = limiter
 
 # Log rate limit configuration
 log_rate_limit_config()
+
+# Log account lockout configuration
+log_lockout_config()
 
 # Include API versioning
 from .api import api_router
@@ -1228,15 +1233,41 @@ async def register_user(request: Request, response: Response, registration: User
 @limiter.limit(RateLimits.AUTHENTICATION)
 async def login_user(request: Request, response: Response, credentials: UserCredentials):
     """Login with username/email and password"""
+    # Check account lockout before hitting the database
+    is_locked, seconds_remaining = login_attempt_tracker.is_locked(credentials.username)
+    if is_locked:
+        return JSONResponse(
+            status_code=403,
+            content={
+                "error": "ACCOUNT_LOCKED",
+                "message": f"Account is locked due to too many failed login attempts. Try again in {seconds_remaining} seconds.",
+                "retry_after_seconds": seconds_remaining
+            }
+        )
+
     service = get_user_service()
     try:
         user = service.authenticate_user(credentials.username, credentials.password)
 
         if not user:
+            # Record failed attempt
+            just_locked, lock_seconds = login_attempt_tracker.record_failed_attempt(credentials.username)
+            if just_locked:
+                return JSONResponse(
+                    status_code=403,
+                    content={
+                        "error": "ACCOUNT_LOCKED",
+                        "message": f"Account is locked due to too many failed login attempts. Try again in {lock_seconds} seconds.",
+                        "retry_after_seconds": lock_seconds
+                    }
+                )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid username or password"
             )
+
+        # Successful login — clear any failed attempts
+        login_attempt_tracker.record_successful_login(credentials.username)
 
         access_token = create_access_token(user.id, user.username)
         refresh_token = create_refresh_token(user.id, user.username)

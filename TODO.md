@@ -54,7 +54,7 @@
 - [x] Rate limiting on all endpoints *(2026-01-24)*
 - [x] Input validation and sanitization *(2026-01-24)*
 - [x] Add security headers middleware (HSTS, CSP, X-Frame-Options) *(2026-02-09)*
-- [ ] Implement account lockout after failed login attempts
+- [x] Implement account lockout after failed login attempts *(2026-02-10)*
 - [ ] Add CSRF protection for state-changing endpoints
 - [ ] Add refresh token rotation (issue new refresh token on each refresh)
 

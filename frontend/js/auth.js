@@ -94,6 +94,11 @@ class AuthManager {
             const data = await response.json();
             this.token = data.access_token;
             localStorage.setItem('auth_token', data.access_token);
+            // Save rotated refresh token
+            if (data.refresh_token) {
+                this.refreshToken = data.refresh_token;
+                localStorage.setItem('refresh_token', data.refresh_token);
+            }
             return true;
         } catch (error) {
             console.error('Token refresh failed:', error);

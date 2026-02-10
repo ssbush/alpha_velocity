@@ -13,6 +13,7 @@ from pydantic import BaseModel, validator, Field
 import os
 import logging
 import secrets
+import uuid
 
 from .validators.validators import validate_email, sanitize_string
 
@@ -63,6 +64,8 @@ class TokenData(BaseModel):
     user_id: int
     username: str
     exp: Optional[datetime] = None
+    jti: Optional[str] = None
+    family: Optional[str] = None
 
 
 class Token(BaseModel):
@@ -236,13 +239,17 @@ def create_access_token(user_id: int, username: str) -> str:
     return encoded_jwt
 
 
-def create_refresh_token(user_id: int, username: str) -> str:
-    """Create a JWT refresh token"""
+def create_refresh_token(user_id: int, username: str, family: str = None, jti: str = None) -> str:
+    """Create a JWT refresh token with rotation claims (jti + family)."""
+    jti = jti or str(uuid.uuid4())
+    family = family or str(uuid.uuid4())
     expire = datetime.utcnow() + timedelta(minutes=REFRESH_TOKEN_EXPIRE_MINUTES)
     to_encode = {
         "user_id": user_id,
         "username": username,
         "type": "refresh",
+        "jti": jti,
+        "family": family,
         "exp": expire
     }
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
@@ -289,6 +296,8 @@ def decode_refresh_token(token: str) -> TokenData:
         username: str = payload.get("username")
         token_type: str = payload.get("type")
         exp: datetime = datetime.fromtimestamp(payload.get("exp"))
+        jti: str = payload.get("jti")
+        family: str = payload.get("family")
 
         if user_id is None or username is None:
             raise HTTPException(
@@ -302,7 +311,7 @@ def decode_refresh_token(token: str) -> TokenData:
                 detail="Invalid token type: expected refresh token"
             )
 
-        return TokenData(user_id=user_id, username=username, exp=exp)
+        return TokenData(user_id=user_id, username=username, exp=exp, jti=jti, family=family)
 
     except HTTPException:
         raise

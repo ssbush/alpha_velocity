@@ -16,6 +16,7 @@ from .config.rate_limit_config import (
     log_rate_limit_config
 )
 from .config.account_lockout_config import login_attempt_tracker, log_lockout_config
+from .config.token_rotation_config import refresh_token_tracker, log_token_rotation_config
 
 # Setup logging based on environment
 setup_logging(
@@ -140,6 +141,9 @@ log_rate_limit_config()
 
 # Log account lockout configuration
 log_lockout_config()
+
+# Log token rotation configuration
+log_token_rotation_config()
 
 # Include API versioning
 from .api import api_router
@@ -1180,7 +1184,7 @@ async def reset_portfolio_targets(portfolio_id: int):
 
 from .auth import (
     UserCredentials, UserRegistration, UserProfile, Token, TokenPair,
-    create_access_token, create_refresh_token, decode_refresh_token,
+    create_access_token, create_refresh_token, decode_access_token, decode_refresh_token,
     get_current_user, get_current_user_id, TokenData
 )
 from .services.user_service import UserService
@@ -1210,6 +1214,10 @@ async def register_user(request: Request, response: Response, registration: User
         user = service.create_user(registration)
         access_token = create_access_token(user.id, user.username)
         refresh_token = create_refresh_token(user.id, user.username)
+
+        # Register the new token family for rotation tracking
+        token_data = decode_refresh_token(refresh_token)
+        refresh_token_tracker.register_family(token_data.family, token_data.jti, user.id)
 
         return {
             "message": "User registered successfully",
@@ -1272,6 +1280,10 @@ async def login_user(request: Request, response: Response, credentials: UserCred
         access_token = create_access_token(user.id, user.username)
         refresh_token = create_refresh_token(user.id, user.username)
 
+        # Register the new token family for rotation tracking
+        token_data = decode_refresh_token(refresh_token)
+        refresh_token_tracker.register_family(token_data.family, token_data.jti, user.id)
+
         return {
             "message": "Login successful",
             "user": UserProfile(
@@ -1296,12 +1308,30 @@ class RefreshTokenRequest(BaseModel):
 @app.post("/auth/refresh", response_model=dict)
 @limiter.limit(RateLimits.AUTHENTICATION)
 async def refresh_access_token(request: Request, response: Response, body: RefreshTokenRequest):
-    """Exchange a refresh token for a new access token"""
+    """Exchange a refresh token for a new token pair (rotation)"""
     token_data = decode_refresh_token(body.refresh_token)
+
+    # Validate token against family tracker and rotate
+    valid, new_jti = refresh_token_tracker.validate_and_rotate(token_data.family, token_data.jti)
+    if not valid:
+        return JSONResponse(
+            status_code=401,
+            content={
+                "error": "TOKEN_REUSE_DETECTED",
+                "message": "Refresh token has been revoked. Please log in again."
+            }
+        )
+
+    # Issue new token pair
     new_access_token = create_access_token(token_data.user_id, token_data.username)
+    new_refresh_token = create_refresh_token(
+        token_data.user_id, token_data.username,
+        family=token_data.family, jti=new_jti
+    )
 
     return {
         "access_token": new_access_token,
+        "refresh_token": new_refresh_token,
         "token_type": "bearer"
     }
 

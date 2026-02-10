@@ -56,7 +56,7 @@
 - [x] Add security headers middleware (HSTS, CSP, X-Frame-Options) *(2026-02-09)*
 - [x] Implement account lockout after failed login attempts *(2026-02-10)*
 - [ ] Add CSRF protection for state-changing endpoints
-- [ ] Add refresh token rotation (issue new refresh token on each refresh)
+- [x] Add refresh token rotation (issue new refresh token on each refresh) *(2026-02-10)*
 
 ### 4. Environment & Configuration
 - [x] `.env.example` with all variables documented *(2026-02-08)*

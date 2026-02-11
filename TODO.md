@@ -72,8 +72,8 @@
 ### 5. API Versioning
 - [x] v1 router created with momentum, portfolio, categories, cache, metrics endpoints *(2026-01-24)*
 - [x] Migrate frontend to use `/api/v1/` prefixed endpoints *(2026-02-11)*
-- [ ] Deprecate unversioned endpoints with warning headers
-- [ ] Document versioning strategy for consumers
+- [x] Deprecate unversioned endpoints with warning headers *(2026-02-11)*
+- [x] Document versioning strategy for consumers *(2026-02-11)*
 
 ### 6. Pagination
 - [x] Pagination utility created (`backend/utils/pagination.py`) *(2026-01-24)*

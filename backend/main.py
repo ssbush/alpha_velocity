@@ -131,7 +131,11 @@ app.add_middleware(AuditMiddleware, enable_audit=True, log_all_requests=False)
 from .middleware.csrf_middleware import CSRFMiddleware
 app.add_middleware(CSRFMiddleware)
 
-# 4. Request/response logging (detailed logging)
+# 4. Deprecation warnings for legacy unversioned endpoints
+from .middleware.deprecation_middleware import DeprecationMiddleware
+app.add_middleware(DeprecationMiddleware)
+
+# 5. Request/response logging (detailed logging)
 app.add_middleware(LoggingMiddleware)
 
 # Register exception handlers for standardized error responses

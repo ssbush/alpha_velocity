@@ -86,22 +86,22 @@ class AlphaVelocityAPI {
 
     // Get momentum score for a ticker
     async getMomentumScore(ticker) {
-        return this.request(`/momentum/${ticker.toUpperCase()}`);
+        return this.request(`/api/v1/momentum/${ticker.toUpperCase()}`);
     }
 
     // Get portfolio analysis
     async getPortfolioAnalysis() {
-        return this.request('/portfolio/analysis');
+        return this.request('/api/v1/portfolio/analysis');
     }
 
     // Get portfolio analysis grouped by categories
     async getPortfolioAnalysisByCategories() {
-        return this.request('/portfolio/analysis/by-categories');
+        return this.request('/api/v1/portfolio/analysis/by-categories');
     }
 
     // Analyze custom portfolio grouped by categories
     async analyzeCustomPortfolioByCategories(portfolio) {
-        return this.request('/portfolio/analyze/by-categories', {
+        return this.request('/api/v1/portfolio/analyze/by-categories', {
             method: 'POST',
             body: JSON.stringify({ holdings: portfolio })
         });
@@ -109,13 +109,13 @@ class AlphaVelocityAPI {
 
     // Get all categories
     async getCategories() {
-        return this.request('/categories');
+        return this.request('/api/v1/categories');
     }
 
     // Get category analysis
     async getCategoryAnalysis(categoryName) {
         const encoded = encodeURIComponent(categoryName);
-        return this.request(`/categories/${encoded}/analysis`);
+        return this.request(`/api/v1/categories/${encoded}/analysis`);
     }
 
     // Category Management API methods
@@ -159,13 +159,13 @@ class AlphaVelocityAPI {
 
     // Get top momentum stocks
     async getTopMomentumStocks(limit = 10) {
-        return this.request(`/momentum/top/${limit}`);
+        return this.request(`/api/v1/momentum/top/${limit}`);
     }
 
     // Get category tickers
     async getCategoryTickers(categoryName) {
         const encoded = encodeURIComponent(categoryName);
-        return this.request(`/categories/${encoded}/tickers`);
+        return this.request(`/api/v1/categories/${encoded}/tickers`);
     }
 
     // Get watchlist of potential portfolio additions
@@ -175,7 +175,7 @@ class AlphaVelocityAPI {
 
     // Analyze custom portfolio
     async analyzeCustomPortfolio(portfolio) {
-        return this.request('/portfolio/analyze', {
+        return this.request('/api/v1/portfolio/analyze', {
             method: 'POST',
             body: JSON.stringify({ holdings: portfolio })
         });

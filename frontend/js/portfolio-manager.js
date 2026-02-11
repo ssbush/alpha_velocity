@@ -368,7 +368,7 @@ class PortfolioManager {
      */
     async showCreatePortfolioModal() {
         // Fetch categories to show allocation inputs
-        const categories = await fetch(`${this.apiBaseUrl}/categories`).then(r => r.json());
+        const categories = await fetch(`${this.apiBaseUrl}/api/v1/categories`).then(r => r.json());
 
         const modal = document.createElement('div');
         modal.className = 'modal modal-large';

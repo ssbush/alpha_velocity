@@ -71,7 +71,7 @@
 
 ### 5. API Versioning
 - [x] v1 router created with momentum, portfolio, categories, cache, metrics endpoints *(2026-01-24)*
-- [ ] Migrate frontend to use `/api/v1/` prefixed endpoints
+- [x] Migrate frontend to use `/api/v1/` prefixed endpoints *(2026-02-11)*
 - [ ] Deprecate unversioned endpoints with warning headers
 - [ ] Document versioning strategy for consumers
 

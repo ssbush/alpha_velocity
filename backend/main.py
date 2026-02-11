@@ -17,6 +17,7 @@ from .config.rate_limit_config import (
 )
 from .config.account_lockout_config import login_attempt_tracker, log_lockout_config
 from .config.token_rotation_config import refresh_token_tracker, log_token_rotation_config
+from .config.csrf_config import log_csrf_config
 
 # Setup logging based on environment
 setup_logging(
@@ -123,7 +124,11 @@ app.add_middleware(PerformanceMiddleware, enable_logging=True, log_threshold_ms=
 from .middleware.audit_middleware import AuditMiddleware
 app.add_middleware(AuditMiddleware, enable_audit=True, log_all_requests=False)
 
-# 3. Request/response logging (detailed logging)
+# 3. CSRF protection (double-submit cookie)
+from .middleware.csrf_middleware import CSRFMiddleware
+app.add_middleware(CSRFMiddleware)
+
+# 4. Request/response logging (detailed logging)
 app.add_middleware(LoggingMiddleware)
 
 # Register exception handlers for standardized error responses
@@ -144,6 +149,9 @@ log_lockout_config()
 
 # Log token rotation configuration
 log_token_rotation_config()
+
+# Log CSRF protection configuration
+log_csrf_config()
 
 # Include API versioning
 from .api import api_router

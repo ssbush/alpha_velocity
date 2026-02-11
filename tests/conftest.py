@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 os.environ['ENVIRONMENT'] = 'test'
 os.environ['LOG_LEVEL'] = 'ERROR'  # Reduce log noise in tests
 os.environ['RATE_LIMIT_ENABLED'] = 'false'  # Disable rate limiting for tests
+os.environ['CSRF_ENABLED'] = 'false'  # Disable CSRF for non-CSRF tests
 
 
 # ============================================================================

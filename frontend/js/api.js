@@ -1,3 +1,9 @@
+// Read a cookie value by name (used for CSRF double-submit pattern)
+function getCookie(name) {
+    const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+    return match ? decodeURIComponent(match[2]) : null;
+}
+
 // AlphaVelocity API Client
 class AlphaVelocityAPI {
     constructor(baseURL = (window.ALPHAVELOCITY_API_URL || window.location.origin)) {
@@ -22,6 +28,15 @@ class AlphaVelocityAPI {
             Object.assign(headers, this.authManager.getAuthHeader());
         }
 
+        // Add CSRF token for state-changing requests
+        const method = (options.method || 'GET').toUpperCase();
+        if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+            const csrfToken = getCookie('_csrf_token');
+            if (csrfToken) {
+                headers['X-CSRF-Token'] = csrfToken;
+            }
+        }
+
         try {
             const response = await fetch(url, {
                 headers,
@@ -35,8 +50,13 @@ class AlphaVelocityAPI {
                     // Retry with new token
                     const retryHeaders = {
                         ...headers,
-                        ...this.authManager.getAuthHeader()
+                        ...this.authManager.getAuthHeader(),
                     };
+                    // Re-read CSRF token (may have been refreshed by the 401 response)
+                    const retryCsrf = getCookie('_csrf_token');
+                    if (retryCsrf) {
+                        retryHeaders['X-CSRF-Token'] = retryCsrf;
+                    }
                     const retryResponse = await fetch(url, {
                         headers: retryHeaders,
                         ...options

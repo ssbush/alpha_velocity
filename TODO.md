@@ -62,7 +62,7 @@
 - [x] `.env.example` with all variables documented *(2026-02-08)*
 - [x] SECRET_KEY documentation fixed to match code *(2026-02-08)*
 - [x] Environment-aware behavior (dev vs production) *(2026-02-08)*
-- [ ] Add startup validation for all critical environment variables
+- [x] Add startup validation for all critical environment variables *(2026-02-11)*
 - [ ] Document deployment configuration for common platforms (AWS, Railway, etc.)
 
 ---

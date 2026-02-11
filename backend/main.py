@@ -28,6 +28,9 @@ setup_logging(
 
 logger = logging.getLogger(__name__)
 
+from .config.env_validation import validate_environment
+validate_environment()
+
 from .services.momentum_engine import MomentumEngine
 from .services.portfolio_service import PortfolioService
 from .services.comparison_service import ComparisonService

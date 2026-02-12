@@ -3,7 +3,7 @@ Service for managing portfolio categories and their ticker mappings
 """
 import os
 import psycopg2
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -19,11 +19,11 @@ except ImportError:
 class CategoryService:
     """Service for managing categories and category-ticker relationships"""
 
-    def __init__(self, momentum_engine=None):
-        self.conn = None
-        self.momentum_engine = momentum_engine or MomentumEngine()
+    def __init__(self, momentum_engine: Optional[Any] = None) -> None:
+        self.conn: Optional[Any] = None
+        self.momentum_engine: Any = momentum_engine or MomentumEngine()
 
-    def _get_connection(self):
+    def _get_connection(self) -> Any:
         """Get database connection"""
         if not self.conn or self.conn.closed:
             self.conn = psycopg2.connect(
@@ -35,7 +35,7 @@ class CategoryService:
             )
         return self.conn
 
-    def get_all_categories(self) -> List[Dict]:
+    def get_all_categories(self) -> List[Dict[str, Any]]:
         """Get all categories with their ticker mappings - optimized with single query"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -117,7 +117,7 @@ class CategoryService:
         finally:
             cursor.close()
 
-    def get_category_by_id(self, category_id: int) -> Optional[Dict]:
+    def get_category_by_id(self, category_id: int) -> Optional[Dict[str, Any]]:
         """Get a single category by ID"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -180,7 +180,7 @@ class CategoryService:
         finally:
             cursor.close()
 
-    def add_ticker_to_category(self, category_id: int, ticker: str) -> Dict:
+    def add_ticker_to_category(self, category_id: int, ticker: str) -> Dict[str, Any]:
         """Add a ticker to a category"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -239,7 +239,7 @@ class CategoryService:
         finally:
             cursor.close()
 
-    def remove_ticker_from_category(self, category_id: int, ticker: str) -> Dict:
+    def remove_ticker_from_category(self, category_id: int, ticker: str) -> Dict[str, Any]:
         """Remove a ticker from a category"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -267,7 +267,7 @@ class CategoryService:
         finally:
             cursor.close()
 
-    def get_ticker_category(self, ticker: str) -> Optional[Dict]:
+    def get_ticker_category(self, ticker: str) -> Optional[Dict[str, Any]]:
         """Get the category for a given ticker"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -295,7 +295,7 @@ class CategoryService:
             cursor.close()
 
     def create_category(self, name: str, description: str, target_allocation_pct: float,
-                       benchmark_ticker: str) -> Dict:
+                       benchmark_ticker: str) -> Dict[str, Any]:
         """Create a new category"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -329,7 +329,7 @@ class CategoryService:
 
     def update_category(self, category_id: int, name: Optional[str] = None,
                        description: Optional[str] = None, target_allocation_pct: Optional[float] = None,
-                       benchmark_ticker: Optional[str] = None) -> Dict:
+                       benchmark_ticker: Optional[str] = None) -> Dict[str, Any]:
         """Update a category"""
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -375,7 +375,7 @@ class CategoryService:
         finally:
             cursor.close()
 
-    def __del__(self):
+    def __del__(self) -> None:
         """Close connection when service is destroyed"""
         if self.conn and not self.conn.closed:
             self.conn.close()

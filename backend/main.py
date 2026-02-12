@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends, status, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Optional, List
+from typing import Any, Dict, List, Optional
 import logging
 import os
 
@@ -204,7 +204,7 @@ except Exception as e:
     db_service = None
 
 # Get all portfolio tickers for caching
-def get_all_portfolio_tickers():
+def get_all_portfolio_tickers() -> List[str]:
     """Get all unique tickers from default portfolio and categories"""
     all_tickers = set(DEFAULT_PORTFOLIO.keys())
 
@@ -228,13 +228,13 @@ logger.info(
 )
 
 @app.get("/")
-async def root():
+async def root() -> dict:
     """API health check"""
     return {"message": "AlphaVelocity API is running", "version": "1.0.0"}
 
 @app.get("/momentum/{ticker}", response_model=MomentumScore)
 @limiter.limit(RateLimits.PUBLIC_API)
-async def get_momentum_score(request: Request, ticker: str):
+async def get_momentum_score(request: Request, ticker: str) -> MomentumScore:
     """Get momentum score for a specific ticker"""
     from .validators.validators import validate_ticker
 
@@ -254,7 +254,7 @@ async def get_momentum_score(request: Request, ticker: str):
         raise HTTPException(status_code=500, detail=f"Error calculating momentum: {str(e)}")
 
 @app.get("/portfolio/analysis")
-async def analyze_portfolio(portfolio_data: Optional[str] = None):
+async def analyze_portfolio(portfolio_data: Optional[str] = None) -> PortfolioAnalysis:
     """Analyze portfolio holdings (uses default if none provided)"""
     try:
         # Use default portfolio if none provided
@@ -288,7 +288,7 @@ async def analyze_portfolio(portfolio_data: Optional[str] = None):
 
 @app.post("/portfolio/analyze")
 @limiter.limit(RateLimits.EXPENSIVE)
-async def analyze_custom_portfolio(request: Request, portfolio: Portfolio):
+async def analyze_custom_portfolio(request: Request, portfolio: Portfolio) -> PortfolioAnalysis:
     """Analyze custom portfolio holdings"""
     try:
         if not portfolio.holdings:
@@ -323,7 +323,7 @@ async def analyze_custom_portfolio(request: Request, portfolio: Portfolio):
         raise HTTPException(status_code=500, detail=f"Error analyzing custom portfolio: {str(e)}")
 
 @app.get("/portfolio/analysis/by-categories")
-async def analyze_portfolio_by_categories():
+async def analyze_portfolio_by_categories() -> dict:
     """Analyze default portfolio with holdings grouped by categories"""
     try:
         portfolio = DEFAULT_PORTFOLIO
@@ -333,7 +333,7 @@ async def analyze_portfolio_by_categories():
         raise HTTPException(status_code=500, detail=f"Error analyzing portfolio by categories: {str(e)}")
 
 @app.post("/portfolio/analyze/by-categories")
-async def analyze_custom_portfolio_by_categories(portfolio: Portfolio):
+async def analyze_custom_portfolio_by_categories(portfolio: Portfolio) -> dict:
     """Analyze custom portfolio with holdings grouped by categories"""
     try:
         if not portfolio.holdings:
@@ -347,7 +347,7 @@ async def analyze_custom_portfolio_by_categories(portfolio: Portfolio):
         raise HTTPException(status_code=500, detail=f"Error analyzing custom portfolio by categories: {str(e)}")
 
 @app.get("/categories", response_model=List[CategoryInfo])
-async def get_categories():
+async def get_categories() -> list:
     """Get all portfolio categories"""
     try:
         categories = portfolio_service.get_all_categories()
@@ -364,7 +364,7 @@ async def get_categories():
         raise HTTPException(status_code=500, detail=f"Error fetching categories: {str(e)}")
 
 @app.get("/categories/{category_name}/analysis", response_model=CategoryAnalysis)
-async def analyze_category(category_name: str):
+async def analyze_category(category_name: str) -> CategoryAnalysis:
     """Analyze a specific portfolio category"""
     try:
         result = portfolio_service.get_categories_analysis(category_name)
@@ -378,7 +378,7 @@ async def analyze_category(category_name: str):
         raise HTTPException(status_code=500, detail=f"Error analyzing category {category_name}: {str(e)}")
 
 @app.get("/momentum/top/{limit}")
-async def get_top_momentum_stocks(limit: int = 10, category: Optional[str] = None):
+async def get_top_momentum_stocks(limit: int = 10, category: Optional[str] = None) -> list:
     """Get top momentum stocks, optionally filtered by category"""
     from .validators.validators import validate_limit, sanitize_string
 
@@ -400,7 +400,7 @@ async def get_top_momentum_stocks(limit: int = 10, category: Optional[str] = Non
         raise HTTPException(status_code=500, detail=f"Error fetching top momentum stocks: {str(e)}")
 
 @app.get("/categories/{category_name}/tickers")
-async def get_category_tickers(category_name: str):
+async def get_category_tickers(category_name: str) -> dict:
     """Get tickers for a specific category"""
     try:
         tickers = portfolio_service.get_category_tickers(category_name)
@@ -413,7 +413,7 @@ async def get_category_tickers(category_name: str):
         raise HTTPException(status_code=500, detail=f"Error fetching tickers for {category_name}: {str(e)}")
 
 @app.get("/watchlist")
-async def get_watchlist(min_score: float = 70.0):
+async def get_watchlist(min_score: float = 70.0) -> dict:
     """Generate watchlist of potential portfolio additions"""
     try:
         # Use the default portfolio for analysis
@@ -427,7 +427,7 @@ async def get_watchlist(min_score: float = 70.0):
 # ========================================
 
 @app.get("/categories/management/all")
-async def get_all_categories_management():
+async def get_all_categories_management() -> dict:
     """Get all categories with ticker details from database"""
     try:
         category_service = CategoryService(momentum_engine=momentum_engine)  # Use shared momentum_engine with cache
@@ -441,7 +441,7 @@ async def get_all_categories_management():
         raise HTTPException(status_code=500, detail=f"Error fetching categories: {str(e)}")
 
 @app.get("/categories/management/{category_id}")
-async def get_category_details(category_id: int):
+async def get_category_details(category_id: int) -> dict:
     """Get details for a specific category"""
     try:
         category_service = CategoryService()
@@ -455,7 +455,7 @@ async def get_category_details(category_id: int):
         raise HTTPException(status_code=500, detail=f"Error fetching category: {str(e)}")
 
 @app.post("/categories/management/{category_id}/tickers")
-async def add_ticker_to_category(category_id: int, ticker: str):
+async def add_ticker_to_category(category_id: int, ticker: str) -> dict:
     """Add a ticker to a category"""
     try:
         if not ticker or len(ticker) > 20:
@@ -474,7 +474,7 @@ async def add_ticker_to_category(category_id: int, ticker: str):
         raise HTTPException(status_code=500, detail=f"Error adding ticker: {str(e)}")
 
 @app.delete("/categories/management/{category_id}/tickers/{ticker}")
-async def remove_ticker_from_category(category_id: int, ticker: str):
+async def remove_ticker_from_category(category_id: int, ticker: str) -> dict:
     """Remove a ticker from a category"""
     try:
         category_service = CategoryService()
@@ -490,7 +490,7 @@ async def remove_ticker_from_category(category_id: int, ticker: str):
         raise HTTPException(status_code=500, detail=f"Error removing ticker: {str(e)}")
 
 @app.post("/categories/management/create")
-async def create_category(name: str, description: str, target_allocation_pct: float, benchmark_ticker: str):
+async def create_category(name: str, description: str, target_allocation_pct: float, benchmark_ticker: str) -> dict:
     """Create a new category"""
     try:
         if not name or len(name) > 100:
@@ -513,7 +513,7 @@ async def create_category(name: str, description: str, target_allocation_pct: fl
 
 @app.put("/categories/management/{category_id}")
 async def update_category(category_id: int, name: Optional[str] = None, description: Optional[str] = None,
-                         target_allocation_pct: Optional[float] = None, benchmark_ticker: Optional[str] = None):
+                         target_allocation_pct: Optional[float] = None, benchmark_ticker: Optional[str] = None) -> dict:
     """Update a category"""
     try:
         category_service = CategoryService()
@@ -530,7 +530,7 @@ async def update_category(category_id: int, name: Optional[str] = None, descript
         raise HTTPException(status_code=500, detail=f"Error updating category: {str(e)}")
 
 @app.post("/watchlist/custom")
-async def get_custom_watchlist(portfolio: Portfolio, min_score: float = 70.0):
+async def get_custom_watchlist(portfolio: Portfolio, min_score: float = 70.0) -> dict:
     """Generate watchlist for custom portfolio"""
     try:
         if not portfolio.holdings:
@@ -544,7 +544,7 @@ async def get_custom_watchlist(portfolio: Portfolio, min_score: float = 70.0):
         raise HTTPException(status_code=500, detail=f"Error generating custom watchlist: {str(e)}")
 
 @app.get("/cache/status")
-async def get_cache_status():
+async def get_cache_status() -> dict:
     """Get momentum cache statistics"""
     try:
         stats = momentum_engine.get_cache_stats()
@@ -557,7 +557,7 @@ async def get_cache_status():
 
 @app.post("/cache/clear")
 @limiter.limit(RateLimits.BULK)
-async def clear_cache(request: Request):
+async def clear_cache(request: Request) -> dict:
     """Clear the momentum cache"""
     try:
         momentum_engine.clear_cache()
@@ -568,7 +568,7 @@ async def clear_cache(request: Request):
 # Portfolio Comparison Endpoints
 
 @app.post("/compare/portfolios", response_model=PortfolioComparison)
-async def compare_portfolios(portfolio_a: Portfolio):
+async def compare_portfolios(portfolio_a: Portfolio) -> PortfolioComparison:
     """Compare custom portfolio against model portfolio"""
     try:
         comparison = comparison_service.compare_portfolios(
@@ -583,7 +583,7 @@ async def compare_portfolios(portfolio_a: Portfolio):
         raise HTTPException(status_code=500, detail=f"Error comparing portfolios: {str(e)}")
 
 @app.get("/compare/model-vs-custom")
-async def compare_model_vs_custom(custom_portfolio: str):
+async def compare_model_vs_custom(custom_portfolio: str) -> PortfolioComparison:
     """Quick comparison between model portfolio and a provided custom portfolio"""
     try:
         # Parse custom portfolio (expecting JSON string of ticker:shares mapping)
@@ -606,7 +606,7 @@ async def compare_model_vs_custom(custom_portfolio: str):
 # Historical Data Endpoints
 
 @app.get("/historical/momentum/{ticker}")
-async def get_momentum_history(ticker: str, days: int = 30):
+async def get_momentum_history(ticker: str, days: int = 30) -> dict:
     """Get historical momentum scores for a ticker"""
     try:
         history = momentum_engine.historical_service.get_momentum_history(ticker.upper(), days)
@@ -648,7 +648,7 @@ async def get_momentum_history(ticker: str, days: int = 30):
         raise HTTPException(status_code=500, detail=f"Error fetching momentum history for {ticker}: {str(e)}")
 
 @app.get("/historical/portfolio/{portfolio_id}")
-async def get_portfolio_history(portfolio_id: str = "default", days: int = 30):
+async def get_portfolio_history(portfolio_id: str = "default", days: int = 30) -> dict:
     """Get historical portfolio performance"""
     try:
         history = momentum_engine.historical_service.get_portfolio_history(portfolio_id, days)
@@ -664,7 +664,7 @@ async def get_portfolio_history(portfolio_id: str = "default", days: int = 30):
         raise HTTPException(status_code=500, detail=f"Error fetching portfolio history: {str(e)}")
 
 @app.get("/historical/performance/{portfolio_id}")
-async def get_performance_analytics(portfolio_id: str = "default", days: int = 30):
+async def get_performance_analytics(portfolio_id: str = "default", days: int = 30) -> dict:
     """Get detailed performance analytics for a portfolio"""
     try:
         analytics = momentum_engine.historical_service.get_performance_analytics(portfolio_id, days)
@@ -673,7 +673,7 @@ async def get_performance_analytics(portfolio_id: str = "default", days: int = 3
         raise HTTPException(status_code=500, detail=f"Error calculating performance analytics: {str(e)}")
 
 @app.get("/historical/top-performers")
-async def get_top_performers(days: int = 7):
+async def get_top_performers(days: int = 7) -> dict:
     """Get top performing stocks by momentum improvement"""
     try:
         performers = momentum_engine.historical_service.get_top_performers(days)
@@ -686,13 +686,13 @@ async def get_top_performers(days: int = 7):
         raise HTTPException(status_code=500, detail=f"Error fetching top performers: {str(e)}")
 
 @app.get("/historical/chart-data/{portfolio_id}")
-async def get_chart_data(portfolio_id: str = "default", days: int = 30):
+async def get_chart_data(portfolio_id: str = "default", days: int = 30) -> dict:
     """Get formatted data for frontend charts"""
     try:
         history = momentum_engine.historical_service.get_portfolio_history(portfolio_id, days)
 
         # Format for Chart.js
-        chart_data = {
+        chart_data: Dict[str, List[Any]] = {
             "labels": [],
             "portfolio_values": [],
             "momentum_scores": []
@@ -711,7 +711,7 @@ async def get_chart_data(portfolio_id: str = "default", days: int = 30):
         raise HTTPException(status_code=500, detail=f"Error generating chart data: {str(e)}")
 
 @app.post("/historical/portfolio/{portfolio_id}/set-id")
-async def set_portfolio_id(portfolio_id: str):
+async def set_portfolio_id(portfolio_id: str) -> dict:
     """Set the current portfolio ID for tracking"""
     try:
         portfolio_service._current_portfolio_id = portfolio_id
@@ -720,7 +720,7 @@ async def set_portfolio_id(portfolio_id: str):
         raise HTTPException(status_code=500, detail=f"Error setting portfolio ID: {str(e)}")
 
 @app.post("/historical/cleanup")
-async def cleanup_historical_data(days_to_keep: int = 365):
+async def cleanup_historical_data(days_to_keep: int = 365) -> dict:
     """Clean up old historical data"""
     try:
         momentum_engine.historical_service.cleanup_old_data(days_to_keep)
@@ -729,7 +729,7 @@ async def cleanup_historical_data(days_to_keep: int = 365):
         raise HTTPException(status_code=500, detail=f"Error cleaning up historical data: {str(e)}")
 
 @app.post("/historical/backfill")
-async def backfill_historical_data(days_back: int = 21):
+async def backfill_historical_data(days_back: int = 21) -> dict:
     """Backfill historical portfolio data with daily closing prices"""
     try:
         from datetime import datetime, timedelta
@@ -827,7 +827,7 @@ async def backfill_historical_data(days_back: int = 21):
 # Daily Cache Management Endpoints
 
 @app.get("/cache/daily/status")
-async def get_daily_cache_status():
+async def get_daily_cache_status() -> dict:
     """Get daily cache status"""
     try:
         cache_stats = daily_scheduler.cache_service.get_cache_stats()
@@ -842,7 +842,7 @@ async def get_daily_cache_status():
         raise HTTPException(status_code=500, detail=f"Error getting daily cache status: {str(e)}")
 
 @app.post("/cache/daily/update")
-async def update_daily_cache(force: bool = False):
+async def update_daily_cache(force: bool = False) -> dict:
     """Manually trigger daily cache update"""
     try:
         success = daily_scheduler.run_manual_update(force=force)
@@ -860,7 +860,7 @@ async def update_daily_cache(force: bool = False):
         raise HTTPException(status_code=500, detail=f"Error updating daily cache: {str(e)}")
 
 @app.post("/cache/daily/start")
-async def start_daily_scheduler():
+async def start_daily_scheduler() -> dict:
     """Start the daily cache scheduler"""
     try:
         daily_scheduler.start_scheduler()
@@ -869,7 +869,7 @@ async def start_daily_scheduler():
         raise HTTPException(status_code=500, detail=f"Error starting daily scheduler: {str(e)}")
 
 @app.post("/cache/daily/stop")
-async def stop_daily_scheduler():
+async def stop_daily_scheduler() -> dict:
     """Stop the daily cache scheduler"""
     try:
         daily_scheduler.stop_scheduler()
@@ -878,7 +878,7 @@ async def stop_daily_scheduler():
         raise HTTPException(status_code=500, detail=f"Error stopping daily scheduler: {str(e)}")
 
 @app.get("/cache/daily/prices/{ticker}")
-async def get_cached_price(ticker: str):
+async def get_cached_price(ticker: str) -> dict:
     """Get cached price for a specific ticker"""
     try:
         price = momentum_engine.historical_service.get_cached_price(ticker.upper())
@@ -897,7 +897,7 @@ async def get_cached_price(ticker: str):
         raise HTTPException(status_code=500, detail=f"Error getting cached price: {str(e)}")
 
 @app.get("/cache/daily/momentum/{ticker}")
-async def get_cached_momentum(ticker: str):
+async def get_cached_momentum(ticker: str) -> dict:
     """Get cached momentum score for a specific ticker"""
     try:
         momentum = momentum_engine.historical_service.get_cached_momentum_score(ticker.upper())
@@ -917,14 +917,14 @@ async def get_cached_momentum(ticker: str):
 
 # Database Management Endpoints (PostgreSQL)
 
-def get_db_service():
+def get_db_service() -> Any:
     """Get database service"""
     if not DATABASE_AVAILABLE or db_service is None:
         raise HTTPException(status_code=503, detail="Database service not available")
     return db_service
 
 @app.get("/database/status")
-async def get_database_status():
+async def get_database_status() -> dict:
     """Check database connection and availability"""
     if not DATABASE_AVAILABLE:
         return {
@@ -950,7 +950,7 @@ async def get_database_status():
 
 @app.post("/database/migrate")
 @limiter.limit(RateLimits.BULK)
-async def run_database_migration(request: Request):
+async def run_database_migration(request: Request) -> dict:
     """Run database migration from JSON files"""
     if not DATABASE_AVAILABLE:
         raise HTTPException(status_code=503, detail="Database service not available")
@@ -974,7 +974,7 @@ async def run_database_migration(request: Request):
         raise HTTPException(status_code=500, detail=f"Migration failed: {str(e)}")
 
 @app.get("/database/portfolios")
-async def get_user_portfolios(user_id: int = 1):
+async def get_user_portfolios(user_id: int = 1) -> dict:
     """Get all portfolios for a user"""
     service = get_db_service()
     try:
@@ -988,7 +988,7 @@ async def get_user_portfolios(user_id: int = 1):
         raise HTTPException(status_code=500, detail=f"Error fetching portfolios: {str(e)}")
 
 @app.get("/database/portfolio/{portfolio_id}/holdings")
-async def get_portfolio_holdings_db(portfolio_id: int):
+async def get_portfolio_holdings_db(portfolio_id: int) -> dict:
     """Get portfolio holdings from database"""
     service = get_db_service()
     try:
@@ -1002,7 +1002,7 @@ async def get_portfolio_holdings_db(portfolio_id: int):
         raise HTTPException(status_code=500, detail=f"Error fetching holdings: {str(e)}")
 
 @app.get("/database/portfolio/{portfolio_id}/categories")
-async def get_category_analysis_db(portfolio_id: int):
+async def get_category_analysis_db(portfolio_id: int) -> Any:
     """Get portfolio category analysis from database"""
     service = get_db_service()
     try:
@@ -1012,7 +1012,7 @@ async def get_category_analysis_db(portfolio_id: int):
         raise HTTPException(status_code=500, detail=f"Error analyzing categories: {str(e)}")
 
 @app.get("/database/portfolio/{portfolio_id}/categories-detailed")
-async def get_portfolio_by_categories_db(portfolio_id: int):
+async def get_portfolio_by_categories_db(portfolio_id: int) -> Any:
     """Get portfolio holdings organized by categories with detailed information"""
     service = get_db_service()
     try:
@@ -1022,7 +1022,7 @@ async def get_portfolio_by_categories_db(portfolio_id: int):
         raise HTTPException(status_code=500, detail=f"Error fetching categorized portfolio: {str(e)}")
 
 @app.post("/database/portfolio/{portfolio_id}/transaction")
-async def add_transaction_db(portfolio_id: int, transaction_data: dict):
+async def add_transaction_db(portfolio_id: int, transaction_data: dict) -> Any:
     """Add a new transaction to portfolio"""
     service = get_db_service()
     try:
@@ -1041,7 +1041,7 @@ async def add_transaction_db(portfolio_id: int, transaction_data: dict):
         raise HTTPException(status_code=500, detail=f"Error adding transaction: {str(e)}")
 
 @app.get("/database/portfolio/{portfolio_id}/transactions")
-async def get_transaction_history_db(portfolio_id: int, limit: int = 50):
+async def get_transaction_history_db(portfolio_id: int, limit: int = 50) -> dict:
     """Get transaction history for portfolio"""
     service = get_db_service()
     try:
@@ -1055,7 +1055,7 @@ async def get_transaction_history_db(portfolio_id: int, limit: int = 50):
         raise HTTPException(status_code=500, detail=f"Error fetching transactions: {str(e)}")
 
 @app.post("/database/portfolio/{portfolio_id}/snapshot")
-async def record_performance_snapshot_db(portfolio_id: int):
+async def record_performance_snapshot_db(portfolio_id: int) -> Any:
     """Record daily performance snapshot"""
     service = get_db_service()
     try:
@@ -1065,7 +1065,7 @@ async def record_performance_snapshot_db(portfolio_id: int):
         raise HTTPException(status_code=500, detail=f"Error recording snapshot: {str(e)}")
 
 @app.get("/database/portfolio/{portfolio_id}/performance")
-async def get_performance_history_db(portfolio_id: int, days: int = 365):
+async def get_performance_history_db(portfolio_id: int, days: int = 365) -> dict:
     """Get performance history for charting"""
     service = get_db_service()
     try:
@@ -1079,7 +1079,7 @@ async def get_performance_history_db(portfolio_id: int, days: int = 365):
         raise HTTPException(status_code=500, detail=f"Error fetching performance: {str(e)}")
 
 @app.post("/database/portfolio/{portfolio_id}/update-momentum")
-async def update_momentum_scores_db(portfolio_id: int):
+async def update_momentum_scores_db(portfolio_id: int) -> Any:
     """Update momentum scores for all securities in portfolio"""
     service = get_db_service()
     try:
@@ -1089,7 +1089,7 @@ async def update_momentum_scores_db(portfolio_id: int):
         raise HTTPException(status_code=500, detail=f"Error updating momentum scores: {str(e)}")
 
 @app.get("/database/portfolio/{portfolio_id}/category-targets")
-async def get_portfolio_category_targets(portfolio_id: int):
+async def get_portfolio_category_targets(portfolio_id: int) -> dict:
     """Get portfolio-specific category targets"""
     try:
         from .database.config import db_config
@@ -1134,7 +1134,7 @@ async def get_portfolio_category_targets(portfolio_id: int):
         raise HTTPException(status_code=500, detail=f"Error fetching targets: {str(e)}")
 
 @app.post("/database/portfolio/{portfolio_id}/category-targets")
-async def set_portfolio_category_target(portfolio_id: int, category_id: int, target_pct: float):
+async def set_portfolio_category_target(portfolio_id: int, category_id: int, target_pct: float) -> dict:
     """Set or update a portfolio-specific category target"""
     try:
         from .database.config import db_config
@@ -1167,7 +1167,7 @@ async def set_portfolio_category_target(portfolio_id: int, category_id: int, tar
         raise HTTPException(status_code=500, detail=f"Error updating target: {str(e)}")
 
 @app.post("/database/portfolio/{portfolio_id}/reset-targets")
-async def reset_portfolio_targets(portfolio_id: int):
+async def reset_portfolio_targets(portfolio_id: int) -> dict:
     """Reset portfolio to use global category defaults"""
     try:
         from .database.config import db_config
@@ -1206,14 +1206,14 @@ from .services.user_service import UserService
 from .services.user_portfolio_service import UserPortfolioService
 from .database.config import get_database_session
 
-def get_user_service():
+def get_user_service() -> UserService:
     """Get user service with database session"""
     if not DATABASE_AVAILABLE:
         raise HTTPException(status_code=503, detail="Database not available")
     db = next(get_database_session())
     return UserService(db)
 
-def get_user_portfolio_service():
+def get_user_portfolio_service() -> UserPortfolioService:
     """Get user portfolio service with database session"""
     if not DATABASE_AVAILABLE:
         raise HTTPException(status_code=503, detail="Database not available")
@@ -1222,7 +1222,7 @@ def get_user_portfolio_service():
 
 @app.post("/auth/register", response_model=dict)
 @limiter.limit(RateLimits.AUTHENTICATION)
-async def register_user(request: Request, response: Response, registration: UserRegistration):
+async def register_user(request: Request, response: Response, registration: UserRegistration) -> dict:
     """Register a new user account"""
     service = get_user_service()
     try:
@@ -1254,7 +1254,7 @@ async def register_user(request: Request, response: Response, registration: User
 
 @app.post("/auth/login", response_model=dict)
 @limiter.limit(RateLimits.AUTHENTICATION)
-async def login_user(request: Request, response: Response, credentials: UserCredentials):
+async def login_user(request: Request, response: Response, credentials: UserCredentials) -> Any:
     """Login with username/email and password"""
     # Check account lockout before hitting the database
     is_locked, seconds_remaining = login_attempt_tracker.is_locked(credentials.username)
@@ -1322,7 +1322,7 @@ class RefreshTokenRequest(BaseModel):
 
 @app.post("/auth/refresh", response_model=dict)
 @limiter.limit(RateLimits.AUTHENTICATION)
-async def refresh_access_token(request: Request, response: Response, body: RefreshTokenRequest):
+async def refresh_access_token(request: Request, response: Response, body: RefreshTokenRequest) -> Any:
     """Exchange a refresh token for a new token pair (rotation)"""
     token_data = decode_refresh_token(body.refresh_token)
 
@@ -1351,7 +1351,7 @@ async def refresh_access_token(request: Request, response: Response, body: Refre
     }
 
 @app.get("/auth/profile", response_model=UserProfile)
-async def get_profile(user_data: TokenData = Depends(get_current_user)):
+async def get_profile(user_data: TokenData = Depends(get_current_user)) -> UserProfile:
     """Get current user profile"""
     service = get_user_service()
     try:
@@ -1365,7 +1365,7 @@ async def get_profile(user_data: TokenData = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=f"Error fetching profile: {str(e)}")
 
 @app.get("/auth/stats")
-async def get_user_stats(user_id: int = Depends(get_current_user_id)):
+async def get_user_stats(user_id: int = Depends(get_current_user_id)) -> dict:
     """Get user statistics"""
     service = get_user_service()
     try:
@@ -1377,7 +1377,7 @@ async def get_user_stats(user_id: int = Depends(get_current_user_id)):
 # ========== User Portfolio Management Endpoints ==========
 
 @app.get("/user/portfolios")
-async def get_user_portfolios(user_id: int = Depends(get_current_user_id)):
+async def get_user_portfolios(user_id: int = Depends(get_current_user_id)) -> dict:
     """Get all portfolios for the authenticated user"""
     service = get_user_portfolio_service()
     try:
@@ -1398,7 +1398,7 @@ async def get_user_portfolios(user_id: int = Depends(get_current_user_id)):
         raise HTTPException(status_code=500, detail=f"Error fetching portfolios: {str(e)}")
 
 @app.get("/user/portfolios/summaries")
-async def get_user_portfolios_with_summaries(user_id: int = Depends(get_current_user_id)):
+async def get_user_portfolios_with_summaries(user_id: int = Depends(get_current_user_id)) -> dict:
     """Get all portfolios with brief summaries (value, positions, returns)"""
     service = get_user_portfolio_service()
     try:
@@ -1414,7 +1414,7 @@ async def create_user_portfolio(
     name: str,
     description: Optional[str] = None,
     user_id: int = Depends(get_current_user_id)
-):
+) -> dict:
     """Create a new portfolio"""
     service = get_user_portfolio_service()
     try:
@@ -1437,7 +1437,7 @@ async def create_user_portfolio(
 async def get_portfolio_summary(
     portfolio_id: int,
     user_id: int = Depends(get_current_user_id)
-):
+) -> dict:
     """Get portfolio summary with holdings"""
     service = get_user_portfolio_service()
     try:
@@ -1456,7 +1456,7 @@ async def update_user_portfolio(
     name: Optional[str] = None,
     description: Optional[str] = None,
     user_id: int = Depends(get_current_user_id)
-):
+) -> dict:
     """Update portfolio details"""
     service = get_user_portfolio_service()
     try:
@@ -1482,7 +1482,7 @@ async def update_user_portfolio(
 async def delete_user_portfolio(
     portfolio_id: int,
     user_id: int = Depends(get_current_user_id)
-):
+) -> dict:
     """Delete a portfolio"""
     service = get_user_portfolio_service()
     try:
@@ -1499,7 +1499,7 @@ async def delete_user_portfolio(
 async def get_portfolio_holdings_endpoint(
     portfolio_id: int,
     user_id: int = Depends(get_current_user_id)
-):
+) -> dict:
     """Get all holdings for a portfolio"""
     service = get_user_portfolio_service()
     try:
@@ -1516,7 +1516,7 @@ async def add_holding(
     average_cost_basis: Optional[float] = None,
     category_name: Optional[str] = None,
     user_id: int = Depends(get_current_user_id)
-):
+) -> dict:
     """Add or update a holding in the portfolio"""
     service = get_user_portfolio_service()
     try:
@@ -1546,7 +1546,7 @@ async def remove_holding_endpoint(
     portfolio_id: int,
     ticker: str,
     user_id: int = Depends(get_current_user_id)
-):
+) -> dict:
     """Remove a holding from the portfolio"""
     service = get_user_portfolio_service()
     try:
@@ -1564,7 +1564,7 @@ async def get_portfolio_transactions_endpoint(
     portfolio_id: int,
     limit: int = 100,
     user_id: int = Depends(get_current_user_id)
-):
+) -> dict:
     """Get transaction history for a portfolio"""
     service = get_user_portfolio_service()
     try:
@@ -1584,7 +1584,7 @@ async def add_transaction_endpoint(
     fees: float = 0,
     notes: Optional[str] = None,
     user_id: int = Depends(get_current_user_id)
-):
+) -> dict:
     """Add a transaction to the portfolio"""
     service = get_user_portfolio_service()
     try:
@@ -1622,7 +1622,7 @@ async def delete_transaction_endpoint(
     portfolio_id: int,
     transaction_id: int,
     user_id: int = Depends(get_current_user_id)
-):
+) -> dict:
     """Delete a transaction from the portfolio"""
     service = get_user_portfolio_service()
     try:

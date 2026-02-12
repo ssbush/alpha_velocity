@@ -3,7 +3,7 @@ User Portfolio Service
 Handles portfolio CRUD operations for authenticated users
 """
 
-from typing import Optional, List, Dict
+from typing import Any, Optional, List, Dict
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from datetime import date, datetime
@@ -18,12 +18,12 @@ from ..models.database import (
 class UserPortfolioService:
     """Service for user portfolio management"""
 
-    def __init__(self, db_session: Session):
-        self.db = db_session
+    def __init__(self, db_session: Session) -> None:
+        self.db: Session = db_session
 
     # ========== Portfolio CRUD ==========
 
-    def create_portfolio(self, user_id: int, name: str, description: str = None) -> Portfolio:
+    def create_portfolio(self, user_id: int, name: str, description: Optional[str] = None) -> Portfolio:
         """Create a new portfolio for a user"""
         # Check for duplicate name for this user
         existing = self.db.query(Portfolio).filter(
@@ -97,7 +97,7 @@ class UserPortfolioService:
 
     # ========== Holdings Management ==========
 
-    def get_portfolio_holdings(self, portfolio_id: int, user_id: int) -> List[Dict]:
+    def get_portfolio_holdings(self, portfolio_id: int, user_id: int) -> List[Dict[str, Any]]:
         """Get all holdings for a portfolio with enriched data"""
         portfolio = self.get_portfolio(portfolio_id, user_id)
         if not portfolio:
@@ -169,8 +169,8 @@ class UserPortfolioService:
         user_id: int,
         ticker: str,
         shares: Decimal,
-        average_cost_basis: Decimal = None,
-        category_name: str = None
+        average_cost_basis: Optional[Decimal] = None,
+        category_name: Optional[str] = None
     ) -> Holding:
         """Add a new holding or update existing one"""
         # Validate portfolio ownership
@@ -254,7 +254,7 @@ class UserPortfolioService:
         price_per_share: Decimal,
         transaction_date: date,
         fees: Decimal = Decimal('0'),
-        notes: str = None
+        notes: Optional[str] = None
     ) -> Transaction:
         """Add a transaction and update holdings"""
         # Validate portfolio ownership
@@ -301,7 +301,7 @@ class UserPortfolioService:
         portfolio_id: int,
         user_id: int,
         limit: Optional[int] = 100
-    ) -> List[Dict]:
+    ) -> List[Dict[str, Any]]:
         """Get transaction history for a portfolio"""
         portfolio = self.get_portfolio(portfolio_id, user_id)
         if not portfolio:
@@ -367,7 +367,7 @@ class UserPortfolioService:
 
         return True
 
-    def _recalculate_holding(self, portfolio_id: int, security_id: int):
+    def _recalculate_holding(self, portfolio_id: int, security_id: int) -> None:
         """Recalculate holdings from all transactions for a specific security"""
         # Get all transactions for this security in chronological order
         transactions = self.db.query(Transaction).filter(
@@ -424,7 +424,7 @@ class UserPortfolioService:
 
     # ========== Portfolio Summary ==========
 
-    def get_portfolio_summary(self, portfolio_id: int, user_id: int) -> Dict:
+    def get_portfolio_summary(self, portfolio_id: int, user_id: int) -> Optional[Dict[str, Any]]:
         """Get comprehensive portfolio summary"""
         portfolio = self.get_portfolio(portfolio_id, user_id)
         if not portfolio:
@@ -445,7 +445,7 @@ class UserPortfolioService:
             'holdings': holdings
         }
 
-    def get_all_portfolios_with_summaries(self, user_id: int) -> List[Dict]:
+    def get_all_portfolios_with_summaries(self, user_id: int) -> List[Dict[str, Any]]:
         """Get all portfolios for user with brief summaries including current values"""
         from ..services.daily_cache_service import DailyCacheService
 
@@ -526,7 +526,7 @@ class UserPortfolioService:
         portfolio_id: int,
         security_id: int,
         transaction: Transaction
-    ):
+    ) -> None:
         """Update holding based on transaction"""
         holding = self.db.query(Holding).filter(
             Holding.portfolio_id == portfolio_id,

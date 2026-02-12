@@ -1,7 +1,7 @@
 import json
 import os
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 import pandas as pd
 from pathlib import Path
 from .daily_cache_service import DailyCacheService
@@ -9,29 +9,29 @@ from .daily_cache_service import DailyCacheService
 class HistoricalDataService:
     """Service for managing historical momentum scores and portfolio performance"""
 
-    def __init__(self, data_dir: str = "data/historical"):
-        self.data_dir = Path(data_dir)
+    def __init__(self, data_dir: str = "data/historical") -> None:
+        self.data_dir: Path = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
         # File paths for different data types
-        self.momentum_scores_file = self.data_dir / "momentum_scores.json"
-        self.portfolio_values_file = self.data_dir / "portfolio_values.json"
-        self.portfolio_compositions_file = self.data_dir / "portfolio_compositions.json"
+        self.momentum_scores_file: Path = self.data_dir / "momentum_scores.json"
+        self.portfolio_values_file: Path = self.data_dir / "portfolio_values.json"
+        self.portfolio_compositions_file: Path = self.data_dir / "portfolio_compositions.json"
 
         # Daily cache service for improved performance
-        self.daily_cache = DailyCacheService()
+        self.daily_cache: DailyCacheService = DailyCacheService()
 
         # Initialize data files if they don't exist
         self._initialize_data_files()
 
-    def _initialize_data_files(self):
+    def _initialize_data_files(self) -> None:
         """Initialize empty data files if they don't exist"""
         for file_path in [self.momentum_scores_file, self.portfolio_values_file, self.portfolio_compositions_file]:
             if not file_path.exists():
                 with open(file_path, 'w') as f:
                     json.dump({}, f)
 
-    def record_momentum_score(self, ticker: str, momentum_data: Dict):
+    def record_momentum_score(self, ticker: str, momentum_data: Dict[str, Any]) -> None:
         """Record a momentum score for a ticker at current timestamp"""
         timestamp = datetime.now().isoformat()
 
@@ -87,7 +87,7 @@ class HistoricalDataService:
         except Exception:
             return True
 
-    def record_portfolio_snapshot(self, portfolio_id: str, portfolio_data: Dict):
+    def record_portfolio_snapshot(self, portfolio_id: str, portfolio_data: Dict[str, Any]) -> None:
         """Record a portfolio snapshot (daily only to avoid over-sampling)"""
         # Only record once per trading day to avoid over-sampling
         if not self.should_record_daily_data():
@@ -106,7 +106,7 @@ class HistoricalDataService:
 
         print(f"📊 Recorded daily portfolio snapshot for {portfolio_id} on {trading_date}")
 
-    def _record_portfolio_value(self, portfolio_id: str, timestamp: str, portfolio_data: Dict):
+    def _record_portfolio_value(self, portfolio_id: str, timestamp: str, portfolio_data: Dict[str, Any]) -> None:
         """Record portfolio total value and average momentum score"""
         with open(self.portfolio_values_file, 'r') as f:
             data = json.load(f)
@@ -133,7 +133,7 @@ class HistoricalDataService:
         with open(self.portfolio_values_file, 'w') as f:
             json.dump(data, f, indent=2)
 
-    def _record_portfolio_composition(self, portfolio_id: str, timestamp: str, portfolio_data: Dict):
+    def _record_portfolio_composition(self, portfolio_id: str, timestamp: str, portfolio_data: Dict[str, Any]) -> None:
         """Record detailed portfolio composition"""
         with open(self.portfolio_compositions_file, 'r') as f:
             data = json.load(f)
@@ -171,7 +171,7 @@ class HistoricalDataService:
         with open(self.portfolio_compositions_file, 'w') as f:
             json.dump(data, f, indent=2)
 
-    def get_momentum_history(self, ticker: str, days: int = 30) -> List[Dict]:
+    def get_momentum_history(self, ticker: str, days: int = 30) -> List[Dict[str, Any]]:
         """Get historical momentum scores for a ticker"""
         try:
             with open(self.momentum_scores_file, 'r') as f:
@@ -191,7 +191,7 @@ class HistoricalDataService:
         except (FileNotFoundError, json.JSONDecodeError):
             return []
 
-    def get_portfolio_history(self, portfolio_id: str, days: int = 30) -> Dict:
+    def get_portfolio_history(self, portfolio_id: str, days: int = 30) -> Dict[str, Any]:
         """Get historical portfolio performance"""
         try:
             with open(self.portfolio_values_file, 'r') as f:
@@ -224,7 +224,7 @@ class HistoricalDataService:
         except (FileNotFoundError, json.JSONDecodeError):
             return {'values': [], 'compositions': []}
 
-    def get_performance_analytics(self, portfolio_id: str, days: int = 30) -> Dict:
+    def get_performance_analytics(self, portfolio_id: str, days: int = 30) -> Dict[str, Any]:
         """Calculate performance analytics for a portfolio"""
         history = self.get_portfolio_history(portfolio_id, days)
         values = history['values']
@@ -290,7 +290,7 @@ class HistoricalDataService:
             'period_days': (df['timestamp'].iloc[-1] - df['timestamp'].iloc[0]).days
         }
 
-    def get_top_performers(self, days: int = 7) -> List[Dict]:
+    def get_top_performers(self, days: int = 7) -> List[Dict[str, Any]]:
         """Get top performing stocks by momentum score improvement"""
         try:
             with open(self.momentum_scores_file, 'r') as f:
@@ -330,7 +330,7 @@ class HistoricalDataService:
         except (FileNotFoundError, json.JSONDecodeError):
             return []
 
-    def get_cached_momentum_score(self, ticker: str) -> Dict:
+    def get_cached_momentum_score(self, ticker: str) -> Dict[str, Any]:
         """Get latest cached momentum score for a ticker"""
         try:
             cached_momentum = self.daily_cache.get_cached_momentum()
@@ -350,7 +350,7 @@ class HistoricalDataService:
             print(f"Failed to get cached price for {ticker}: {e}")
             return 0.0
 
-    def get_portfolio_from_cache(self, tickers: Dict[str, int]) -> Dict:
+    def get_portfolio_from_cache(self, tickers: Dict[str, int]) -> Dict[str, Any]:
         """Calculate portfolio analysis using cached data"""
         try:
             cached_prices = self.daily_cache.get_cached_prices()
@@ -383,7 +383,7 @@ class HistoricalDataService:
             print(f"Failed to get portfolio from cache: {e}")
             return {'using_cache': False}
 
-    def cleanup_old_data(self, days_to_keep: int = 365):
+    def cleanup_old_data(self, days_to_keep: int = 365) -> None:
         """Clean up data older than specified days"""
         cutoff_date = datetime.now() - timedelta(days=days_to_keep)
 

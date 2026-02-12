@@ -10,11 +10,11 @@
 ### 1. Type Hints
 - [x] Add type hints to core services (momentum, portfolio, comparison, user) *(2026-01-24)*
 - [x] Add mypy to requirements *(2026-01-24)*
-- [ ] Add type hints to `backend/services/historical_service.py`
-- [ ] Add type hints to `backend/services/user_portfolio_service.py`
-- [ ] Add type hints to `backend/services/category_service.py`
-- [ ] Add type hints to `backend/main.py` endpoint functions
-- [ ] Run mypy and fix all type errors
+- [x] Add type hints to `backend/services/historical_service.py` *(2026-02-12)*
+- [x] Add type hints to `backend/services/user_portfolio_service.py` *(2026-02-12)*
+- [x] Add type hints to `backend/services/category_service.py` *(2026-02-12)*
+- [x] Add type hints to `backend/main.py` endpoint functions *(2026-02-12)*
+- [x] Run mypy and fix all type errors *(2026-02-12)*
 
 ### 2. Test Coverage
 - [x] pytest, pytest-asyncio, pytest-cov configured *(2026-02-08)*

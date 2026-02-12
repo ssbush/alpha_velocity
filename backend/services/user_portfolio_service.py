@@ -300,18 +300,23 @@ class UserPortfolioService:
         self,
         portfolio_id: int,
         user_id: int,
-        limit: int = 100
+        limit: Optional[int] = 100
     ) -> List[Dict]:
         """Get transaction history for a portfolio"""
         portfolio = self.get_portfolio(portfolio_id, user_id)
         if not portfolio:
             return []
 
-        transactions = self.db.query(Transaction).filter(
+        query = self.db.query(Transaction).filter(
             Transaction.portfolio_id == portfolio_id
         ).join(SecurityMaster).order_by(
             Transaction.transaction_date.desc()
-        ).limit(limit).all()
+        )
+
+        if limit is not None:
+            query = query.limit(limit)
+
+        transactions = query.all()
 
         result = []
         for txn in transactions:

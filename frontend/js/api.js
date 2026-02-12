@@ -157,9 +157,20 @@ class AlphaVelocityAPI {
         });
     }
 
-    // Get top momentum stocks
-    async getTopMomentumStocks(limit = 10) {
-        return this.request(`/api/v1/momentum/top/${limit}`);
+    // Get top momentum stocks (supports legacy limit or paginated mode)
+    async getTopMomentumStocks(options = {}) {
+        // Support legacy call: getTopMomentumStocks(10) or getTopMomentumStocks({limit: 10})
+        if (typeof options === 'number') {
+            return this.request(`/api/v1/momentum/top/${options}`);
+        }
+        const { limit, page, pageSize, sortBy, sortOrder } = options;
+        if (page !== undefined) {
+            const params = new URLSearchParams({ page, page_size: pageSize || 20 });
+            if (sortBy) params.append('sort_by', sortBy);
+            if (sortOrder) params.append('sort_order', sortOrder);
+            return this.request(`/api/v1/momentum/top?${params}`);
+        }
+        return this.request(`/api/v1/momentum/top/${limit || 10}`);
     }
 
     // Get category tickers
@@ -245,9 +256,21 @@ class AlphaVelocityAPI {
         });
     }
 
-    // Get transaction history (authenticated)
+    // Get transaction history (authenticated, legacy)
     async getTransactionHistory(portfolioId, limit = 50) {
         return this.request(`/user/portfolios/${portfolioId}/transactions?limit=${limit}`);
+    }
+
+    // Get transaction history with pagination (authenticated, v1)
+    async getTransactionHistoryPaginated(portfolioId, options = {}) {
+        const { page = 1, pageSize = 20, sortBy = 'transaction_date', sortOrder = 'desc' } = options;
+        const params = new URLSearchParams({
+            page,
+            page_size: pageSize,
+            sort_by: sortBy,
+            sort_order: sortOrder
+        });
+        return this.request(`/api/v1/user/portfolios/${portfolioId}/transactions?${params}`);
     }
 
     // Delete transaction (authenticated)

@@ -78,9 +78,9 @@
 ### 6. Pagination
 - [x] Pagination utility created (`backend/utils/pagination.py`) *(2026-01-24)*
 - [x] Paginated momentum and portfolio endpoints in v1 *(2026-01-24)*
-- [ ] Apply pagination to transaction history endpoints
-- [ ] Apply pagination to historical data endpoints
-- [ ] Update frontend to handle paginated responses
+- [x] Apply pagination to transaction history endpoints *(2026-02-11)*
+- [x] Apply pagination to historical data endpoints *(2026-02-11)*
+- [x] Update frontend to handle paginated responses *(2026-02-11)*
 
 ### 7. Redis Caching
 - [x] Redis cache layer with decorators (`backend/cache/`) *(2026-01-24)*
@@ -172,7 +172,7 @@
 | Priority | Done | Total | Progress |
 |----------|------|-------|----------|
 | High     | 4/4  | 4     | 100%     |
-| Medium   | 3/6  | 6     | 50%      |
+| Medium   | 4/6  | 6     | 67%      |
 | Low      | 1/5  | 5     | 20%      |
 
-**Next up**: Security headers middleware, account lockout, fix InvalidTickerError in batch endpoints, migrate frontend to /api/v1/.
+**Next up**: Deploy and test with Redis, verify CI workflow, audit error handling consistency.

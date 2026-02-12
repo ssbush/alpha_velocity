@@ -7,6 +7,7 @@ class AlphaVelocityApp {
         this.currentPortfolioId = 1; // Default portfolio ID for database mode
         this.customPortfolio = {};
         this.authManager = null; // Will be initialized in init()
+        this.transactionPage = 1; // Current page for transaction history pagination
         this.init();
     }
 
@@ -2722,10 +2723,14 @@ class AlphaVelocityApp {
         }
 
         try {
-            const data = await api.getTransactionHistory(portfolioId, 100);
-            const transactions = data.transactions || [];
+            const data = await api.getTransactionHistoryPaginated(portfolioId, {
+                page: this.transactionPage,
+                pageSize: 20
+            });
+            const transactions = data.items || [];
+            const metadata = data.metadata || {};
 
-            if (transactions.length === 0) {
+            if (transactions.length === 0 && this.transactionPage === 1) {
                 historyContainer.innerHTML = '<div class="no-transactions">No transactions yet. Add your first transaction above!</div>';
                 return;
             }
@@ -2751,12 +2756,51 @@ class AlphaVelocityApp {
                         </div>
                     `).join('')}
                 </div>
+                <div id="transaction-pagination"></div>
             `;
 
             historyContainer.innerHTML = historyHTML;
+
+            // Render pagination controls
+            if (metadata.total_pages > 1) {
+                this.renderPaginationControls('transaction-pagination', metadata, (newPage) => {
+                    this.transactionPage = newPage;
+                    this.loadTransactionHistory();
+                });
+            }
         } catch (error) {
             console.error('Error loading transaction history:', error);
             historyContainer.innerHTML = '<div class="error">Error loading transaction history</div>';
+        }
+    }
+
+    renderPaginationControls(containerId, metadata, onPageChange) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+
+        const { page, total_pages, total_items, page_size, has_previous, has_next } = metadata;
+        const startItem = (page - 1) * page_size + 1;
+        const endItem = Math.min(page * page_size, total_items);
+
+        container.innerHTML = `
+            <div class="pagination-controls">
+                <button class="pagination-btn pagination-prev" ${!has_previous ? 'disabled' : ''}>Previous</button>
+                <div class="pagination-info">
+                    <span class="pagination-page">Page ${page} of ${total_pages}</span>
+                    <span class="pagination-items">Showing ${startItem}-${endItem} of ${total_items}</span>
+                </div>
+                <button class="pagination-btn pagination-next" ${!has_next ? 'disabled' : ''}>Next</button>
+            </div>
+        `;
+
+        const prevBtn = container.querySelector('.pagination-prev');
+        const nextBtn = container.querySelector('.pagination-next');
+
+        if (has_previous) {
+            prevBtn.addEventListener('click', () => onPageChange(page - 1));
+        }
+        if (has_next) {
+            nextBtn.addEventListener('click', () => onPageChange(page + 1));
         }
     }
 

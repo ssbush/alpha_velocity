@@ -102,7 +102,7 @@
 - [x] Custom exception hierarchy (`backend/exceptions.py`) *(2026-01-24)*
 - [x] Structured error models (`backend/models/error_models.py`) *(2026-01-24)*
 - [x] Error handlers registered *(2026-01-24)*
-- [ ] Audit all endpoints for consistent error handling
+- [x] Audit all endpoints for consistent error handling *(2026-02-12)*
 - [x] Fix: `momentum_batch.py` catches `ValueError` but `validate_ticker` raises `InvalidTickerError` *(2026-02-09)*
 - [x] Fix: `InMemoryCache.clear()` doesn't accept `pattern` argument *(2026-02-09)*
 - [x] Fix: `PerformanceMetrics.get_all_stats()` deadlock — re-entrant lock *(2026-02-09)*

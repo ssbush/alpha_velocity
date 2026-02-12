@@ -283,6 +283,8 @@ async def analyze_portfolio(portfolio_data: Optional[str] = None) -> PortfolioAn
             average_momentum_score=avg_score,
             number_of_positions=len(portfolio)
         )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error analyzing portfolio: {str(e)}")
 
@@ -329,6 +331,8 @@ async def analyze_portfolio_by_categories() -> dict:
         portfolio = DEFAULT_PORTFOLIO
         result = portfolio_service.get_portfolio_by_categories(portfolio)
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error analyzing portfolio by categories: {str(e)}")
 
@@ -360,6 +364,8 @@ async def get_categories() -> list:
                 benchmark=info['benchmark']
             ))
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching categories: {str(e)}")
 
@@ -419,6 +425,8 @@ async def get_watchlist(min_score: float = 70.0) -> dict:
         # Use the default portfolio for analysis
         watchlist = portfolio_service.generate_watchlist(DEFAULT_PORTFOLIO, min_score)
         return watchlist
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating watchlist: {str(e)}")
 
@@ -437,6 +445,8 @@ async def get_all_categories_management() -> dict:
             'categories': categories,
             'count': len(categories)
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching categories: {str(e)}")
 
@@ -552,6 +562,8 @@ async def get_cache_status() -> dict:
             "cache_stats": stats,
             "message": f"Cache contains {stats['valid_entries']} valid entries out of {stats['total_entries']} total"
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting cache status: {str(e)}")
 
@@ -562,6 +574,8 @@ async def clear_cache(request: Request) -> dict:
     try:
         momentum_engine.clear_cache()
         return {"message": "Cache cleared successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error clearing cache: {str(e)}")
 
@@ -579,6 +593,8 @@ async def compare_portfolios(portfolio_a: Portfolio) -> PortfolioComparison:
         )
 
         return comparison
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error comparing portfolios: {str(e)}")
 
@@ -600,6 +616,8 @@ async def compare_model_vs_custom(custom_portfolio: str) -> PortfolioComparison:
         return comparison
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON format for custom portfolio")
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error in comparison: {str(e)}")
 
@@ -644,6 +662,8 @@ async def get_momentum_history(ticker: str, days: int = 30) -> dict:
             "current_score": history[-1]['composite_score'] if history else 0,
             "score_change": score_change
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching momentum history for {ticker}: {str(e)}")
 
@@ -660,6 +680,8 @@ async def get_portfolio_history(portfolio_id: str = "default", days: int = 30) -
             "compositions": history['compositions'],
             "analytics": analytics
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching portfolio history: {str(e)}")
 
@@ -669,6 +691,8 @@ async def get_performance_analytics(portfolio_id: str = "default", days: int = 3
     try:
         analytics = momentum_engine.historical_service.get_performance_analytics(portfolio_id, days)
         return analytics
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error calculating performance analytics: {str(e)}")
 
@@ -682,6 +706,8 @@ async def get_top_performers(days: int = 7) -> dict:
             "performers": performers,
             "analysis_date": momentum_engine.historical_service.momentum_scores_file.stat().st_mtime if momentum_engine.historical_service.momentum_scores_file.exists() else None
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching top performers: {str(e)}")
 
@@ -707,6 +733,8 @@ async def get_chart_data(portfolio_id: str = "default", days: int = 30) -> dict:
             chart_data["momentum_scores"].append(entry['average_momentum_score'])
 
         return chart_data
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating chart data: {str(e)}")
 
@@ -716,6 +744,8 @@ async def set_portfolio_id(portfolio_id: str) -> dict:
     try:
         portfolio_service._current_portfolio_id = portfolio_id
         return {"message": f"Portfolio ID set to {portfolio_id}"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error setting portfolio ID: {str(e)}")
 
@@ -725,6 +755,8 @@ async def cleanup_historical_data(days_to_keep: int = 365) -> dict:
     try:
         momentum_engine.historical_service.cleanup_old_data(days_to_keep)
         return {"message": f"Cleaned up data older than {days_to_keep} days"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error cleaning up historical data: {str(e)}")
 
@@ -821,6 +853,8 @@ async def backfill_historical_data(days_back: int = 21) -> dict:
             "failed_date_list": failed_dates
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error during backfill: {str(e)}")
 
@@ -838,6 +872,8 @@ async def get_daily_cache_status() -> dict:
             "scheduler_status": scheduler_status,
             "message": f"Daily cache system with {len(PORTFOLIO_TICKERS)} tickers"
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting daily cache status: {str(e)}")
 
@@ -856,6 +892,8 @@ async def update_daily_cache(force: bool = False) -> dict:
         else:
             raise HTTPException(status_code=500, detail="Daily cache update failed")
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating daily cache: {str(e)}")
 
@@ -865,6 +903,8 @@ async def start_daily_scheduler() -> dict:
     try:
         daily_scheduler.start_scheduler()
         return {"message": "Daily scheduler started successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error starting daily scheduler: {str(e)}")
 
@@ -874,6 +914,8 @@ async def stop_daily_scheduler() -> dict:
     try:
         daily_scheduler.stop_scheduler()
         return {"message": "Daily scheduler stopped successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error stopping daily scheduler: {str(e)}")
 
@@ -970,6 +1012,8 @@ async def run_database_migration(request: Request) -> dict:
             "message": "Database migration completed successfully",
             "status": "success"
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Migration failed: {str(e)}")
 
@@ -984,6 +1028,8 @@ async def get_user_portfolios(user_id: int = 1) -> dict:
             "portfolios": portfolios,
             "count": len(portfolios)
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching portfolios: {str(e)}")
 
@@ -998,6 +1044,8 @@ async def get_portfolio_holdings_db(portfolio_id: int) -> dict:
             "holdings": holdings,
             "position_count": len(holdings)
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching holdings: {str(e)}")
 
@@ -1008,6 +1056,8 @@ async def get_category_analysis_db(portfolio_id: int) -> Any:
     try:
         analysis = service.get_categories_analysis(portfolio_id)
         return analysis
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error analyzing categories: {str(e)}")
 
@@ -1018,6 +1068,8 @@ async def get_portfolio_by_categories_db(portfolio_id: int) -> Any:
     try:
         result = service.get_portfolio_by_categories(portfolio_id)
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching categorized portfolio: {str(e)}")
 
@@ -1051,6 +1103,8 @@ async def get_transaction_history_db(portfolio_id: int, limit: int = 50) -> dict
             "transactions": transactions,
             "count": len(transactions)
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching transactions: {str(e)}")
 
@@ -1061,6 +1115,8 @@ async def record_performance_snapshot_db(portfolio_id: int) -> Any:
     try:
         result = service.record_performance_snapshot(portfolio_id)
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error recording snapshot: {str(e)}")
 
@@ -1075,6 +1131,8 @@ async def get_performance_history_db(portfolio_id: int, days: int = 365) -> dict
             "performance_history": history,
             "days": days
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching performance: {str(e)}")
 
@@ -1085,6 +1143,8 @@ async def update_momentum_scores_db(portfolio_id: int) -> Any:
     try:
         result = service.update_momentum_scores(portfolio_id)
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating momentum scores: {str(e)}")
 
@@ -1130,6 +1190,8 @@ async def get_portfolio_category_targets(portfolio_id: int) -> dict:
                     "benchmark": t[3]
                 } for t in targets]
             }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching targets: {str(e)}")
 
@@ -1163,6 +1225,8 @@ async def set_portfolio_category_target(portfolio_id: int, category_id: int, tar
 
             session.commit()
             return {"success": True, "message": "Target updated successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating target: {str(e)}")
 
@@ -1192,6 +1256,8 @@ async def reset_portfolio_targets(portfolio_id: int) -> dict:
 
             session.commit()
             return {"success": True, "message": "Targets reset to defaults"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error resetting targets: {str(e)}")
 
@@ -1249,6 +1315,8 @@ async def register_user(request: Request, response: Response, registration: User
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
 
@@ -1371,6 +1439,8 @@ async def get_user_stats(user_id: int = Depends(get_current_user_id)) -> dict:
     try:
         stats = service.get_user_stats(user_id)
         return stats
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching stats: {str(e)}")
 
@@ -1394,6 +1464,8 @@ async def get_user_portfolios(user_id: int = Depends(get_current_user_id)) -> di
                 for p in portfolios
             ]
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching portfolios: {str(e)}")
 
@@ -1406,6 +1478,8 @@ async def get_user_portfolios_with_summaries(user_id: int = Depends(get_current_
         return {
             "portfolios": summaries
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching portfolio summaries: {str(e)}")
 
@@ -1430,6 +1504,8 @@ async def create_user_portfolio(
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error creating portfolio: {str(e)}")
 
@@ -1505,6 +1581,8 @@ async def get_portfolio_holdings_endpoint(
     try:
         holdings = service.get_portfolio_holdings(portfolio_id, user_id)
         return {"holdings": holdings}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching holdings: {str(e)}")
 
@@ -1538,6 +1616,8 @@ async def add_holding(
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error adding holding: {str(e)}")
 
@@ -1570,6 +1650,8 @@ async def get_portfolio_transactions_endpoint(
     try:
         transactions = service.get_portfolio_transactions(portfolio_id, user_id, limit)
         return {"transactions": transactions}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching transactions: {str(e)}")
 
@@ -1614,6 +1696,8 @@ async def add_transaction_endpoint(
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error adding transaction: {str(e)}")
 
@@ -1633,6 +1717,8 @@ async def delete_transaction_endpoint(
             raise HTTPException(status_code=404, detail="Transaction not found")
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting transaction: {str(e)}")
 

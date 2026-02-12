@@ -289,8 +289,9 @@ async def compare_sequential_vs_concurrent(
         for ticker in validated:
             try:
                 sequential_results[ticker] = engine.calculate_momentum_score(ticker)
-            except:
-                pass
+            except (ValueError, InvalidTickerError) as e:
+                logger.warning(f"Skipping ticker '{ticker}' in sequential run: {e}")
+                continue
         sequential_time = time.time() - start
         
         # Concurrent processing

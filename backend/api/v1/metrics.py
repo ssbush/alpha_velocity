@@ -4,7 +4,7 @@ Metrics API Endpoints (v1)
 Endpoints for accessing performance metrics and statistics.
 """
 
-from fastapi import APIRouter, Request, Query
+from fastapi import APIRouter, HTTPException, Request, Query
 from typing import Optional
 import logging
 
@@ -61,11 +61,7 @@ async def get_performance_metrics(
 
     except Exception as e:
         logger.error(f"Error retrieving performance metrics: {e}", exc_info=True)
-        return {
-            'success': False,
-            'error': str(e),
-            'message': "Failed to retrieve performance metrics"
-        }
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve performance metrics: {str(e)}")
 
 
 @router.delete("/performance/reset")
@@ -110,11 +106,7 @@ async def reset_performance_metrics(
 
     except Exception as e:
         logger.error(f"Error resetting performance metrics: {e}", exc_info=True)
-        return {
-            'success': False,
-            'error': str(e),
-            'message': "Failed to reset performance metrics"
-        }
+        raise HTTPException(status_code=500, detail=f"Failed to reset performance metrics: {str(e)}")
 
 
 @router.get("/endpoints")
@@ -168,11 +160,7 @@ async def get_endpoint_summary(request: Request):
 
     except Exception as e:
         logger.error(f"Error retrieving endpoint summary: {e}", exc_info=True)
-        return {
-            'success': False,
-            'error': str(e),
-            'message': "Failed to retrieve endpoint summary"
-        }
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve endpoint summary: {str(e)}")
 
 
 @router.get("/slow")
@@ -226,8 +214,4 @@ async def get_slow_endpoints(
 
     except Exception as e:
         logger.error(f"Error retrieving slow endpoints: {e}", exc_info=True)
-        return {
-            'success': False,
-            'error': str(e),
-            'message': "Failed to retrieve slow endpoints"
-        }
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve slow endpoints: {str(e)}")

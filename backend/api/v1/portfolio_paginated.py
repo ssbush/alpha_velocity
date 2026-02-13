@@ -4,7 +4,7 @@ Paginated Portfolio API Endpoints (v1)
 Enhanced portfolio endpoints with pagination support.
 """
 
-from fastapi import APIRouter, HTTPException, Request, Query
+from fastapi import APIRouter, HTTPException, Request, Response, Query
 from typing import Optional
 import logging
 
@@ -29,6 +29,7 @@ portfolio_service = PortfolioService(momentum_engine)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def analyze_default_portfolio_paginated(
     request: Request,
+    response: Response,
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
     page_size: int = Query(20, ge=1, le=100, description="Holdings per page (1-100)"),
     sort_by: str = Query("momentum_score", description="Sort field"),
@@ -88,6 +89,7 @@ async def analyze_default_portfolio_paginated(
 @limiter.limit(RateLimits.EXPENSIVE)
 async def analyze_custom_portfolio_paginated(
     request: Request,
+    response: Response,
     portfolio: Portfolio,
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Holdings per page"),

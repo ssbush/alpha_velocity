@@ -4,7 +4,7 @@ Momentum API Endpoints (v1)
 Endpoints for momentum scoring and analysis.
 """
 
-from fastapi import APIRouter, HTTPException, Request, Depends
+from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from typing import Optional
 import logging
 
@@ -26,7 +26,7 @@ momentum_engine = MomentumEngine()
 
 @router.get("/{ticker}", response_model=MomentumScore, responses=MOMENTUM_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
-async def get_momentum_score(request: Request, ticker: str):
+async def get_momentum_score(request: Request, response: Response, ticker: str):
     """
     Get momentum score for a specific ticker symbol.
 
@@ -60,6 +60,7 @@ async def get_momentum_score(request: Request, ticker: str):
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_top_momentum_stocks(
     request: Request,
+    response: Response,
     limit: int,
     category: Optional[str] = None
 ):

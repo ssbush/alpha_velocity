@@ -4,7 +4,7 @@ Portfolio API Endpoints (v1)
 Endpoints for portfolio analysis and management.
 """
 
-from fastapi import APIRouter, HTTPException, Request, Depends
+from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from typing import Optional, List
 import logging
 
@@ -26,7 +26,7 @@ portfolio_service = PortfolioService(momentum_engine)
 
 @router.get("/analysis", response_model=PortfolioAnalysis, responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
-async def analyze_default_portfolio(request: Request):
+async def analyze_default_portfolio(request: Request, response: Response):
     """
     Analyze the default model portfolio.
     
@@ -61,7 +61,7 @@ async def analyze_default_portfolio(request: Request):
 
 @router.post("/analyze", response_model=PortfolioAnalysis, responses=VALIDATION_ERRORS)
 @limiter.limit(RateLimits.EXPENSIVE)
-async def analyze_custom_portfolio(request: Request, portfolio: Portfolio):
+async def analyze_custom_portfolio(request: Request, response: Response, portfolio: Portfolio):
     """
     Analyze a custom portfolio with user-provided holdings.
     
@@ -113,7 +113,7 @@ async def analyze_custom_portfolio(request: Request, portfolio: Portfolio):
 
 @router.get("/analysis/by-categories", responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
-async def analyze_portfolio_by_categories(request: Request):
+async def analyze_portfolio_by_categories(request: Request, response: Response):
     """
     Analyze default portfolio grouped by categories.
     
@@ -140,7 +140,7 @@ async def analyze_portfolio_by_categories(request: Request):
 
 @router.post("/analyze/by-categories", responses=VALIDATION_ERRORS)
 @limiter.limit(RateLimits.EXPENSIVE)
-async def analyze_custom_portfolio_by_categories(request: Request, portfolio: Portfolio):
+async def analyze_custom_portfolio_by_categories(request: Request, response: Response, portfolio: Portfolio):
     """
     Analyze custom portfolio grouped by categories.
     

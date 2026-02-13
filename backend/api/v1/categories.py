@@ -4,7 +4,7 @@ Categories API Endpoints (v1)
 Endpoints for portfolio category management and analysis.
 """
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from typing import List
 import logging
 
@@ -26,7 +26,7 @@ portfolio_service = PortfolioService(momentum_engine)
 
 @router.get("", response_model=List[CategoryInfo], responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
-async def get_categories(request: Request):
+async def get_categories(request: Request, response: Response):
     """
     Get all portfolio categories with metadata.
     
@@ -64,7 +64,7 @@ async def get_categories(request: Request):
 
 @router.get("/{category_name}/analysis", response_model=CategoryAnalysis, responses=RESOURCE_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
-async def analyze_category(request: Request, category_name: str):
+async def analyze_category(request: Request, response: Response, category_name: str):
     """
     Analyze a specific portfolio category.
     
@@ -103,7 +103,7 @@ async def analyze_category(request: Request, category_name: str):
 
 @router.get("/{category_name}/tickers", responses=RESOURCE_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
-async def get_category_tickers(request: Request, category_name: str):
+async def get_category_tickers(request: Request, response: Response, category_name: str):
     """
     Get list of tickers in a specific category.
     

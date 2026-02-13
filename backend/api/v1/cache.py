@@ -4,7 +4,7 @@ Cache API Endpoints (v1)
 Endpoints for cache management and status.
 """
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 import logging
 
 from ...services.momentum_engine import MomentumEngine
@@ -22,7 +22,7 @@ momentum_engine = MomentumEngine()
 
 @router.get("/status", response_model=CacheStatusResponse, responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
-async def get_cache_status(request: Request):
+async def get_cache_status(request: Request, response: Response):
     """
     Get cache statistics and status.
     
@@ -62,7 +62,7 @@ async def get_cache_status(request: Request):
 
 @router.post("/clear", response_model=CacheClearResponse, responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.BULK)
-async def clear_cache(request: Request):
+async def clear_cache(request: Request, response: Response):
     """
     Clear the price cache.
     

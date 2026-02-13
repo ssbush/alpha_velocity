@@ -4,7 +4,7 @@ Paginated Transaction History API Endpoints (v1)
 Authenticated endpoints for viewing transaction history with pagination and sorting.
 """
 
-from fastapi import APIRouter, HTTPException, Request, Depends, Query
+from fastapi import APIRouter, HTTPException, Request, Response, Depends, Query
 import logging
 
 from ...auth import get_current_user_id
@@ -31,6 +31,7 @@ def _get_portfolio_service():
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_portfolio_transactions_paginated(
     request: Request,
+    response: Response,
     portfolio_id: int,
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page (1-100)"),

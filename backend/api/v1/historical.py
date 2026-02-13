@@ -5,7 +5,7 @@ Historical momentum scores, portfolio performance, and top performers
 with pagination support.
 """
 
-from fastapi import APIRouter, HTTPException, Request, Query
+from fastapi import APIRouter, HTTPException, Request, Response, Query
 from typing import Optional
 import logging
 
@@ -29,6 +29,7 @@ historical_service = momentum_engine.historical_service
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_momentum_history_paginated(
     request: Request,
+    response: Response,
     ticker: str,
     days: int = Query(30, ge=1, le=365, description="Number of days of history"),
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
@@ -126,6 +127,7 @@ async def get_momentum_history_paginated(
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_portfolio_history_paginated(
     request: Request,
+    response: Response,
     portfolio_id: str = "default",
     days: int = Query(30, ge=1, le=365, description="Number of days of history"),
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
@@ -184,6 +186,7 @@ async def get_portfolio_history_paginated(
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_top_performers_paginated(
     request: Request,
+    response: Response,
     days: int = Query(7, ge=1, le=90, description="Number of days to analyze"),
     page: int = Query(1, ge=1, description="Page number (1-indexed)"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page (1-100)")

@@ -4,7 +4,7 @@ Metrics API Endpoints (v1)
 Endpoints for accessing performance metrics and statistics.
 """
 
-from fastapi import APIRouter, HTTPException, Request, Query
+from fastapi import APIRouter, HTTPException, Request, Query, Response
 from typing import Optional
 import logging
 
@@ -30,6 +30,7 @@ router = APIRouter()
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_performance_metrics(
     request: Request,
+    response: Response,
     endpoint: Optional[str] = Query(None, description="Specific endpoint to query")
 ):
     """
@@ -73,6 +74,7 @@ async def get_performance_metrics(
 @limiter.limit(RateLimits.ADMIN)
 async def reset_performance_metrics(
     request: Request,
+    response: Response,
     endpoint: Optional[str] = Query(None, description="Specific endpoint to reset")
 ):
     """
@@ -115,7 +117,7 @@ async def reset_performance_metrics(
 
 @router.get("/endpoints", response_model=EndpointSummaryResponse, responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
-async def get_endpoint_summary(request: Request):
+async def get_endpoint_summary(request: Request, response: Response):
     """
     Get summary of all tracked endpoints.
 
@@ -169,6 +171,7 @@ async def get_endpoint_summary(request: Request):
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_slow_endpoints(
     request: Request,
+    response: Response,
     threshold_ms: float = Query(1000.0, ge=100, le=60000, description="Threshold in milliseconds")
 ):
     """

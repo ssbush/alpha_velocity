@@ -5,7 +5,7 @@ Exposes the ERROR_CODES registry as a browsable API resource so that
 consumers can programmatically discover every error code the API may return.
 """
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Response
 import logging
 
 from ...exceptions import ERROR_CODES
@@ -111,7 +111,7 @@ def _categorize(status_code: int) -> str:
 
 @router.get("/codes")
 @limiter.limit(RateLimits.PUBLIC_API)
-async def get_error_codes(request: Request):
+async def get_error_codes(request: Request, response: Response):
     """
     List all error codes the API may return.
 

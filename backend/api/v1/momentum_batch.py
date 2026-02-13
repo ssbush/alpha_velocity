@@ -5,7 +5,7 @@ Endpoints for batch processing multiple tickers concurrently.
 Provides dramatic performance improvements for bulk operations.
 """
 
-from fastapi import APIRouter, HTTPException, Request, Query
+from fastapi import APIRouter, HTTPException, Request, Response, Query
 from typing import List, Optional
 from pydantic import BaseModel, Field
 import logging
@@ -45,6 +45,7 @@ class BatchMomentumResponse(BaseModel):
 @limiter.limit(RateLimits.EXPENSIVE)
 async def calculate_batch_momentum(
     request: Request,
+    response: Response,
     batch_request: BatchMomentumRequest,
     max_workers: int = Query(10, ge=1, le=20, description="Concurrent workers (1-20)")
 ):
@@ -153,6 +154,7 @@ async def calculate_batch_momentum(
 @limiter.limit(RateLimits.EXPENSIVE)
 async def get_top_from_batch(
     request: Request,
+    response: Response,
     batch_request: BatchMomentumRequest,
     n: int = Query(10, ge=1, le=100, description="Number of top stocks"),
     max_workers: int = Query(10, ge=1, le=20, description="Concurrent workers")
@@ -240,6 +242,7 @@ async def get_top_from_batch(
 @limiter.limit(RateLimits.PUBLIC_API)
 async def compare_sequential_vs_concurrent(
     request: Request,
+    response: Response,
     tickers: str = Query(..., description="Comma-separated tickers"),
     max_workers: int = Query(10, ge=1, le=20)
 ):

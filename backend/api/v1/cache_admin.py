@@ -4,7 +4,7 @@ Cache Administration API Endpoints (v1)
 Advanced cache management endpoints for monitoring and control.
 """
 
-from fastapi import APIRouter, HTTPException, Request, Query
+from fastapi import APIRouter, HTTPException, Request, Response, Query
 from typing import Optional
 import logging
 
@@ -26,7 +26,7 @@ router = APIRouter()
 
 @router.get("/info", response_model=CacheInfoResponse, responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
-async def get_cache_info(request: Request):
+async def get_cache_info(request: Request, response: Response):
     """
     Get cache system information and statistics.
     
@@ -59,6 +59,7 @@ async def get_cache_info(request: Request):
 @limiter.limit(RateLimits.PUBLIC_API)
 async def list_cache_keys(
     request: Request,
+    response: Response,
     pattern: str = Query("*", description="Key pattern (supports wildcards)")
 ):
     """
@@ -99,6 +100,7 @@ async def list_cache_keys(
 @limiter.limit(RateLimits.BULK)
 async def clear_cache_pattern(
     request: Request,
+    response: Response,
     pattern: str = Query("*", description="Pattern of keys to clear")
 ):
     """
@@ -147,7 +149,7 @@ async def clear_cache_pattern(
 
 @router.get("/stats", responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
-async def get_cache_stats(request: Request):
+async def get_cache_stats(request: Request, response: Response):
     """
     Get detailed cache statistics by key prefix.
     
@@ -192,6 +194,7 @@ async def get_cache_stats(request: Request):
 @limiter.limit(RateLimits.BULK)
 async def warmup_cache(
     request: Request,
+    response: Response,
     tickers: Optional[str] = Query(None, description="Comma-separated tickers to warm up")
 ):
     """

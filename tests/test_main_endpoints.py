@@ -14,10 +14,10 @@ client = TestClient(app)
 
 
 class TestHealthCheck:
-    """Tests for GET / health endpoint."""
+    """Tests for GET /api/health endpoint."""
 
-    def test_root_returns_200(self):
-        resp = client.get("/")
+    def test_health_returns_200(self):
+        resp = client.get("/api/health")
         assert resp.status_code == 200
         data = resp.json()
         assert data["message"] == "AlphaVelocity API is running"

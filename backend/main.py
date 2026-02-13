@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Depends, status, Request, Response
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 import logging
@@ -221,8 +222,8 @@ logger.info(
     extra={'ticker_count': len(PORTFOLIO_TICKERS), 'tickers': sorted(PORTFOLIO_TICKERS)}
 )
 
-@app.get("/")
-async def root() -> dict:
+@app.get("/api/health")
+async def health_check() -> dict:
     """API health check"""
     return {"message": "AlphaVelocity API is running", "version": "1.0.0"}
 
@@ -1691,6 +1692,9 @@ async def delete_transaction_endpoint(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting transaction: {str(e)}")
+
+# Serve frontend static files (must be last to avoid shadowing API routes)
+app.mount("/", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "..", "frontend"), html=True), name="frontend")
 
 if __name__ == "__main__":
     import uvicorn

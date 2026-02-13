@@ -16,9 +16,9 @@ class TestAPI(unittest.TestCase):
         """Set up test client"""
         self.client = TestClient(app)
 
-    def test_root_endpoint(self):
-        """Test root endpoint"""
-        response = self.client.get("/")
+    def test_health_endpoint(self):
+        """Test health check endpoint"""
+        response = self.client.get("/api/health")
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertIn("message", data)

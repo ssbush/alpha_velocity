@@ -2173,12 +2173,15 @@ class AlphaVelocityApp {
         analyticsGrid.innerHTML = analyticsHTML;
         analyticsSection.style.display = 'block';
 
-        // Setup period selector
+        // Setup period selector (guard against duplicate listeners)
         const periodSelector = document.getElementById('analytics-period');
-        periodSelector.addEventListener('change', (e) => {
-            const days = parseInt(e.target.value);
-            this.loadPerformanceAnalytics('default', days);
-        });
+        if (!this._analyticsPeriodListenerAttached) {
+            this._analyticsPeriodListenerAttached = true;
+            periodSelector.addEventListener('change', (e) => {
+                const days = parseInt(e.target.value);
+                this.loadPerformanceAnalytics('default', days);
+            });
+        }
     }
 
     setupComparisonControls() {
@@ -2613,6 +2616,10 @@ class AlphaVelocityApp {
     }
 
     setupPortfolioBuilderEventListeners() {
+        // Prevent duplicate listeners when view is re-entered
+        if (this._builderListenersAttached) return;
+        this._builderListenersAttached = true;
+
         const addTransactionBtn = document.getElementById('add-transaction-btn');
         const clearFormBtn = document.getElementById('clear-form-btn');
 

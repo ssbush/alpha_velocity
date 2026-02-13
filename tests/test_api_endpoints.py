@@ -13,9 +13,9 @@ pytestmark = pytest.mark.api
 class TestHealthEndpoint:
     """Test health check endpoint"""
 
-    def test_root_endpoint(self, test_client):
-        """Test GET / returns 200"""
-        response = test_client.get("/")
+    def test_health_endpoint(self, test_client):
+        """Test GET /api/health returns 200"""
+        response = test_client.get("/api/health")
         assert response.status_code == 200
         data = response.json()
         assert "message" in data

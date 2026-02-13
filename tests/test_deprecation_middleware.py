@@ -107,9 +107,9 @@ class TestDeprecationHeaders:
         assert "Deprecation" not in response.headers
         assert "Sunset" not in response.headers
 
-    def test_root_no_deprecation_header(self):
-        """Root health check should NOT have deprecation headers."""
-        response = client.get("/")
+    def test_health_no_deprecation_header(self):
+        """Health check should NOT have deprecation headers."""
+        response = client.get("/api/health")
         assert "Deprecation" not in response.headers
 
     def test_auth_no_deprecation_header(self):

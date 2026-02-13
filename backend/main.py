@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 from .config.env_validation import validate_environment
 validate_environment()
 
+from .services.price_service import PriceService, set_price_service
 from .services.momentum_engine import MomentumEngine
 from .services.portfolio_service import PortfolioService
 from .services.comparison_service import ComparisonService
@@ -169,8 +170,10 @@ logger.info("API versioning enabled - v1 endpoints available at /api/v1/")
 from .config.portfolio_config import DEFAULT_PORTFOLIO
 
 # Initialize services
-momentum_engine = MomentumEngine()
-portfolio_service = PortfolioService(momentum_engine)
+price_service = PriceService()
+set_price_service(price_service)
+momentum_engine = MomentumEngine(price_service=price_service)
+portfolio_service = PortfolioService(momentum_engine, price_service=price_service)
 comparison_service = ComparisonService(portfolio_service)
 
 # Database services (optional, loaded on demand)
@@ -211,7 +214,7 @@ def get_all_portfolio_tickers() -> List[str]:
 
 # Initialize daily cache scheduler
 PORTFOLIO_TICKERS = get_all_portfolio_tickers()
-daily_scheduler = initialize_scheduler(momentum_engine, PORTFOLIO_TICKERS)
+daily_scheduler = initialize_scheduler(momentum_engine, PORTFOLIO_TICKERS, price_service=price_service)
 
 logger.info(
     f"AlphaVelocity initialized with {len(PORTFOLIO_TICKERS)} tickers for daily caching",
@@ -756,7 +759,6 @@ async def backfill_historical_data(days_back: int = 21) -> dict:
     """Backfill historical portfolio data with daily closing prices"""
     try:
         from datetime import datetime, timedelta
-        import yfinance as yf
 
         logger.info(f"Starting historical data backfill for {days_back} days", extra={'days_back': days_back})
 
@@ -793,10 +795,13 @@ async def backfill_historical_data(days_back: int = 21) -> dict:
                 for ticker, shares in DEFAULT_PORTFOLIO.items():
                     try:
                         # Get historical price for this specific date
-                        stock = yf.Ticker(ticker)
-                        hist = stock.history(start=date_str, end=(datetime.strptime(date_str, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d'))
+                        hist = price_service.get_history_by_date_range(
+                            ticker,
+                            start=date_str,
+                            end=(datetime.strptime(date_str, '%Y-%m-%d') + timedelta(days=1)).strftime('%Y-%m-%d')
+                        )
 
-                        if not hist.empty:
+                        if hist is not None:
                             price = float(hist['Close'].iloc[0])
 
                             # Calculate historical momentum score for this specific date

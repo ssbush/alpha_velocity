@@ -127,9 +127,6 @@ class UserPortfolioService:
             logger.warning("Could not load category mapping: %s", e)
             ticker_to_category = {}
 
-        # Import yfinance for sector lookup
-        import yfinance as yf
-
         result = []
         for holding in holdings:
             # Use database category if set, otherwise lookup from portfolio service
@@ -139,12 +136,12 @@ class UserPortfolioService:
             else:
                 category_name = ticker_to_category.get(holding.security.ticker)
 
-            # If still no category, try to get sector from yfinance as fallback
+            # If still no category, try to get sector from price service as fallback
             if not category_name:
                 try:
-                    ticker_obj = yf.Ticker(holding.security.ticker)
-                    info = ticker_obj.info
-                    sector = info.get('sector')
+                    from .price_service import get_price_service
+                    info = get_price_service().get_stock_info(holding.security.ticker)
+                    sector = info.get('sector') if info else None
                     if sector:
                         category_name = f"{sector}"
                     else:

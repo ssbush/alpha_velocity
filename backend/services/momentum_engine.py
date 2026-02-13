@@ -7,7 +7,6 @@ import time
 import logging
 warnings.filterwarnings('ignore')
 
-from ..utils.data_providers import DataProvider
 from .historical_service import HistoricalDataService
 
 logger = logging.getLogger(__name__)
@@ -23,14 +22,15 @@ class MomentumEngine:
     - Relative Momentum (10%)
     """
 
-    def __init__(self, data_provider: Optional[DataProvider] = None) -> None:
+    def __init__(self, price_service=None) -> None:
+        from .price_service import PriceService
         self.weights: Dict[str, float] = {
             'price_momentum': 0.40,
             'technical_momentum': 0.25,
             'fundamental_momentum': 0.25,
             'relative_momentum': 0.10
         }
-        self.data_provider: DataProvider = data_provider or DataProvider()
+        self.price_service: 'PriceService' = price_service or PriceService()
 
         # Simple memory cache for momentum scores (24 hour TTL)
         self._cache: Dict[str, Tuple[Dict[str, Any], float]] = {}
@@ -40,8 +40,8 @@ class MomentumEngine:
         self.historical_service: HistoricalDataService = HistoricalDataService()
 
     def get_stock_data(self, ticker: str, period: str = '1y') -> Tuple[Optional[pd.DataFrame], Optional[Dict[str, Any]]]:
-        """Fetch stock data via data provider"""
-        return self.data_provider.get_stock_data(ticker, period)
+        """Fetch stock data via price service"""
+        return self.price_service.get_stock_data(ticker, period)
 
     def calculate_price_momentum(self, hist_data: pd.DataFrame) -> float:
         """Calculate price momentum component (40% of total score)"""
@@ -182,7 +182,6 @@ class MomentumEngine:
     def calculate_historical_momentum_score(self, ticker: str, end_date: str) -> Dict[str, Any]:
         """Calculate momentum score for a ticker as of a specific historical date"""
         from datetime import datetime, timedelta
-        import yfinance as yf
 
         try:
             # Convert end_date string to datetime
@@ -192,13 +191,13 @@ class MomentumEngine:
             start_date = target_date - timedelta(days=400)  # Extra buffer for weekends/holidays
 
             # Fetch historical data up to the target date
-            stock = yf.Ticker(ticker)
-            hist_data = stock.history(
+            hist_data = self.price_service.get_history_by_date_range(
+                ticker,
                 start=start_date.strftime('%Y-%m-%d'),
                 end=(target_date + timedelta(days=1)).strftime('%Y-%m-%d')
             )
 
-            if hist_data.empty or len(hist_data) < 50:
+            if hist_data is None or len(hist_data) < 50:
                 return {
                     'ticker': ticker,
                     'composite_score': 0,
@@ -266,18 +265,17 @@ class MomentumEngine:
     def calculate_historical_relative_momentum(self, ticker: str, hist_data: pd.DataFrame, target_date: datetime, benchmark: str = 'SPY') -> float:
         """Calculate relative momentum against benchmark for a specific historical date"""
         try:
-            import yfinance as yf
             from datetime import timedelta
 
             # Get benchmark data for the same period
             start_date = target_date - timedelta(days=400)
-            benchmark_stock = yf.Ticker(benchmark)
-            benchmark_data = benchmark_stock.history(
+            benchmark_data = self.price_service.get_history_by_date_range(
+                benchmark,
                 start=start_date.strftime('%Y-%m-%d'),
                 end=(target_date + timedelta(days=1)).strftime('%Y-%m-%d')
             )
 
-            if benchmark_data.empty or len(hist_data) < 21:
+            if benchmark_data is None or len(hist_data) < 21:
                 return 50
 
             # Calculate 21-day returns for both stock and benchmark

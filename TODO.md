@@ -160,7 +160,7 @@
 ## Code Quality
 
 - [x] Extract hardcoded `DEFAULT_PORTFOLIO` to `backend/config/portfolio_config.py` *(2026-02-12)*
-- [ ] Centralize price fetching logic into dedicated service
+- [x] Centralize price fetching logic into dedicated service (`backend/services/price_service.py`) *(2026-02-12)*
 - [ ] Remove duplicate code in portfolio services
 - [ ] Consolidate API response formatting
 - [ ] Add docstrings to all public functions

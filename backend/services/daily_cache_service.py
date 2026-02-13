@@ -5,7 +5,6 @@ Handles daily sampling of stock prices and momentum scores for improved performa
 
 import json
 import logging
-import yfinance as yf
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -18,10 +17,17 @@ logger = logging.getLogger(__name__)
 class DailyCacheService:
     """Service for daily caching of stock prices and momentum scores"""
 
-    def __init__(self, data_dir: str = "data"):
+    def __init__(self, data_dir: str = "data", price_service=None):
         self.data_dir = Path(data_dir)
         self.cache_dir = self.data_dir / "daily_cache"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # Lazy import to avoid circular imports
+        if price_service is not None:
+            self.price_service = price_service
+        else:
+            from .price_service import get_price_service
+            self.price_service = get_price_service()
 
         # Cache files
         self.daily_prices_file = self.cache_dir / "daily_prices.json"
@@ -116,16 +122,13 @@ class DailyCacheService:
                 start_date = end_date - timedelta(days=7)
 
                 # Download data
-                stock_data = yf.download(
+                stock_data = self.price_service.download_daily_prices(
                     ticker,
                     start=start_date.strftime('%Y-%m-%d'),
                     end=end_date.strftime('%Y-%m-%d'),
-                    interval='1d',
-                    auto_adjust=True,
-                    progress=False
                 )
 
-                if not stock_data.empty:
+                if stock_data is not None:
                     # Get the closing price for the target date or most recent
                     target_date = pd.Timestamp(date)
 

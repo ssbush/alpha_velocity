@@ -2,16 +2,16 @@ import pandas as pd
 from typing import Dict, List, Optional, Tuple, Any
 import logging
 from .momentum_engine import MomentumEngine
-from ..utils.data_providers import DataProvider
+from .price_service import PriceService
 
 logger = logging.getLogger(__name__)
 
 class PortfolioService:
     """Service for portfolio analysis and management"""
 
-    def __init__(self, momentum_engine: Optional[MomentumEngine] = None) -> None:
+    def __init__(self, momentum_engine: Optional[MomentumEngine] = None, price_service: Optional[PriceService] = None) -> None:
         self.momentum_engine: MomentumEngine = momentum_engine or MomentumEngine()
-        self.data_provider: DataProvider = DataProvider()
+        self.price_service: PriceService = price_service or PriceService()
 
         # Portfolio categories with target allocations
         self.portfolio_categories: Dict[str, Dict[str, Any]] = {
@@ -83,15 +83,8 @@ class PortfolioService:
 
         # Get current prices for all positions
         for ticker in tickers:
-            try:
-                hist_data, _ = self.data_provider.get_stock_data(ticker, '1d')
-                if hist_data is not None and not hist_data.empty:
-                    prices_data[ticker] = hist_data['Close'].iloc[-1]
-                else:
-                    prices_data[ticker] = 0
-            except Exception as e:
-                logger.warning(f"Error fetching price for {ticker}", extra={'ticker': ticker, 'error': str(e)})
-                prices_data[ticker] = 0
+            price = self.price_service.get_current_price(ticker)
+            prices_data[ticker] = price if price is not None else 0
 
         # Calculate portfolio values
         portfolio_data = []
@@ -246,25 +239,17 @@ class PortfolioService:
 
     def _calculate_current_allocation(self, portfolio: Dict[str, int]) -> Dict[str, float]:
         """Calculate current allocation percentages by category based on dollar values"""
-        import yfinance as yf
-
         # Get current prices for all positions
         total_portfolio_value = 0
         position_values = {}
 
         for ticker, shares in portfolio.items():
-            try:
-                stock = yf.Ticker(ticker)
-                hist_data = stock.history(period="1d")
-                if hist_data is not None and not hist_data.empty:
-                    current_price = hist_data['Close'].iloc[-1]
-                    market_value = shares * current_price
-                    position_values[ticker] = market_value
-                    total_portfolio_value += market_value
-                else:
-                    position_values[ticker] = 0
-            except Exception as e:
-                logger.warning(f"Error fetching price for {ticker}", extra={'ticker': ticker, 'error': str(e)})
+            current_price = self.price_service.get_current_price(ticker)
+            if current_price is not None:
+                market_value = shares * current_price
+                position_values[ticker] = market_value
+                total_portfolio_value += market_value
+            else:
                 position_values[ticker] = 0
 
         # Calculate allocation by category based on dollar values
@@ -295,19 +280,13 @@ class PortfolioService:
         position_values = {}
 
         for ticker, shares in portfolio.items():
-            try:
-                hist_data, _ = self.data_provider.get_stock_data(ticker, '1d')
-                if hist_data is not None and not hist_data.empty:
-                    price = hist_data['Close'].iloc[-1]
-                    market_value = shares * price
-                    prices_data[ticker] = price
-                    position_values[ticker] = market_value
-                    total_portfolio_value += market_value
-                else:
-                    prices_data[ticker] = 0
-                    position_values[ticker] = 0
-            except Exception as e:
-                logger.warning(f"Error fetching price for {ticker}", extra={'ticker': ticker, 'error': str(e)})
+            price = self.price_service.get_current_price(ticker)
+            if price is not None:
+                market_value = shares * price
+                prices_data[ticker] = price
+                position_values[ticker] = market_value
+                total_portfolio_value += market_value
+            else:
                 prices_data[ticker] = 0
                 position_values[ticker] = 0
 

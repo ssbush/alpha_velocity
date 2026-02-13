@@ -19,10 +19,10 @@ from .daily_cache_service import DailyCacheService
 class DailyScheduler:
     """Scheduler for daily cache updates"""
 
-    def __init__(self, momentum_engine, portfolio_tickers: List[str]):
+    def __init__(self, momentum_engine, portfolio_tickers: List[str], price_service=None):
         self.momentum_engine = momentum_engine
         self.portfolio_tickers = portfolio_tickers
-        self.cache_service = DailyCacheService()
+        self.cache_service = DailyCacheService(price_service=price_service)
         self.is_running = False
         self.scheduler_thread = None
 
@@ -176,10 +176,10 @@ class MarketHoursHelper:
 daily_scheduler: DailyScheduler = None
 
 
-def initialize_scheduler(momentum_engine, portfolio_tickers: List[str]):
+def initialize_scheduler(momentum_engine, portfolio_tickers: List[str], price_service=None):
     """Initialize the global scheduler"""
     global daily_scheduler
-    daily_scheduler = DailyScheduler(momentum_engine, portfolio_tickers)
+    daily_scheduler = DailyScheduler(momentum_engine, portfolio_tickers, price_service=price_service)
     return daily_scheduler
 
 

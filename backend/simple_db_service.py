@@ -198,11 +198,9 @@ def get_db_service():
 
                             # Fetch current market price
                             try:
-                                import yfinance as yf
-                                stock = yf.Ticker(security.ticker)
-                                hist_data = stock.history(period="1d")
-                                if hist_data is not None and not hist_data.empty:
-                                    current_price = hist_data['Close'].iloc[-1]
+                                from .services.price_service import get_price_service
+                                current_price = get_price_service().get_current_price(security.ticker)
+                                if current_price is not None:
                                     current_value = float(holding.shares) * current_price
                                 else:
                                     logger.warning("No price data available for %s", security.ticker)

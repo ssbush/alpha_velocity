@@ -2,12 +2,23 @@
 Tests for Database Configuration (backend/database/config.py)
 
 Covers DatabaseConfig initialization, connection parsing, and session management.
+All tests mock create_engine to avoid real database connections.
 """
 
 import pytest
 from unittest.mock import patch, MagicMock
 
 from backend.database.config import DatabaseConfig
+
+
+@pytest.fixture
+def mock_engine():
+    """Patch create_engine so tests never hit a real database."""
+    engine = MagicMock()
+    engine.connect.return_value.__enter__ = MagicMock()
+    engine.connect.return_value.__exit__ = MagicMock(return_value=False)
+    with patch("backend.database.config.create_engine", return_value=engine) as mock_ce:
+        yield engine, mock_ce
 
 
 class TestDatabaseConfig:
@@ -43,49 +54,59 @@ class TestDatabaseConfig:
         assert config.db_user == "testuser"
         assert config.db_password == "testpass"
 
-    def test_test_connection_returns_bool(self):
+    def test_test_connection_success(self, mock_engine):
+        engine, _ = mock_engine
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchone.return_value = (1,)
+        engine.connect.return_value.__enter__.return_value = mock_conn
+
         config = DatabaseConfig()
         result = config.test_connection()
-        assert isinstance(result, bool)
+        assert result is True
 
-    def test_initialize_engine(self):
+    def test_test_connection_failure(self, mock_engine):
+        engine, _ = mock_engine
+        engine.connect.side_effect = Exception("Connection refused")
+
+        config = DatabaseConfig()
+        result = config.test_connection()
+        assert result is False
+
+    def test_initialize_engine(self, mock_engine):
+        engine, mock_ce = mock_engine
         config = DatabaseConfig()
         config.initialize_engine()
         assert config.engine is not None
         assert config.SessionLocal is not None
+        mock_ce.assert_called_once()
 
-    def test_initialize_engine_idempotent(self):
+    def test_initialize_engine_idempotent(self, mock_engine):
+        _, mock_ce = mock_engine
         config = DatabaseConfig()
         config.initialize_engine()
         engine1 = config.engine
         config.initialize_engine()
         assert config.engine is engine1  # Same engine, not re-created
+        mock_ce.assert_called_once()
 
-    def test_get_session(self):
+    def test_get_session(self, mock_engine):
         config = DatabaseConfig()
         config.initialize_engine()
         session = config.get_session()
         assert session is not None
         session.close()
 
-    def test_create_all_tables_initializes_engine(self):
+    def test_create_all_tables_initializes_engine(self, mock_engine):
         config = DatabaseConfig()
-        # Should initialize engine if None
-        try:
-            config.create_all_tables()
-        except Exception:
-            pass  # May fail without real DB, but engine should be initialized
+        config.create_all_tables()
         assert config.engine is not None
 
-    def test_drop_all_tables_initializes_engine(self):
+    def test_drop_all_tables_initializes_engine(self, mock_engine):
         config = DatabaseConfig()
-        try:
-            config.drop_all_tables()
-        except Exception:
-            pass  # May fail without real DB
+        config.drop_all_tables()
         assert config.engine is not None
 
-    def test_get_session_initializes_engine(self):
+    def test_get_session_initializes_engine(self, mock_engine):
         config = DatabaseConfig()
         assert config.SessionLocal is None
         session = config.get_session()

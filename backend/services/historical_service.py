@@ -1,10 +1,13 @@
 import json
+import logging
 import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 import pandas as pd
 from pathlib import Path
 from .daily_cache_service import DailyCacheService
+
+logger = logging.getLogger(__name__)
 
 class HistoricalDataService:
     """Service for managing historical momentum scores and portfolio performance"""
@@ -104,7 +107,7 @@ class HistoricalDataService:
         # Record portfolio composition
         self._record_portfolio_composition(portfolio_id, timestamp, portfolio_data)
 
-        print(f"📊 Recorded daily portfolio snapshot for {portfolio_id} on {trading_date}")
+        logger.info("Recorded daily portfolio snapshot for %s on %s", portfolio_id, trading_date)
 
     def _record_portfolio_value(self, portfolio_id: str, timestamp: str, portfolio_data: Dict[str, Any]) -> None:
         """Record portfolio total value and average momentum score"""
@@ -337,7 +340,7 @@ class HistoricalDataService:
             if ticker in cached_momentum:
                 return cached_momentum[ticker]
         except Exception as e:
-            print(f"Failed to get cached momentum for {ticker}: {e}")
+            logger.warning("Failed to get cached momentum for %s: %s", ticker, e)
 
         return {}
 
@@ -347,7 +350,7 @@ class HistoricalDataService:
             cached_prices = self.daily_cache.get_cached_prices()
             return cached_prices.get(ticker, 0.0)
         except Exception as e:
-            print(f"Failed to get cached price for {ticker}: {e}")
+            logger.warning("Failed to get cached price for %s: %s", ticker, e)
             return 0.0
 
     def get_portfolio_from_cache(self, tickers: Dict[str, int]) -> Dict[str, Any]:
@@ -380,7 +383,7 @@ class HistoricalDataService:
             }
 
         except Exception as e:
-            print(f"Failed to get portfolio from cache: {e}")
+            logger.warning("Failed to get portfolio from cache: %s", e)
             return {'using_cache': False}
 
     def cleanup_old_data(self, days_to_keep: int = 365) -> None:

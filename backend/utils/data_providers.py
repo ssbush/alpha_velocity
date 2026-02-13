@@ -1,8 +1,11 @@
+import logging
 
 import yfinance as yf
 import pandas as pd
 from typing import Tuple, Optional
 from abc import ABC, abstractmethod
+
+logger = logging.getLogger(__name__)
 
 class BaseDataProvider(ABC):
     """Abstract base class for data providers"""
@@ -23,7 +26,7 @@ class YahooFinanceProvider(BaseDataProvider):
             info = stock.info
             return hist, info
         except Exception as e:
-            print(f"Error fetching data for {ticker}: {e}")
+            logger.error("Error fetching data for %s: %s", ticker, e)
             return None, None
 
 class AlphaVantageProvider(BaseDataProvider):

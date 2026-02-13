@@ -4,11 +4,14 @@ Handles scheduled daily cache updates after market close.
 """
 
 import asyncio
+import logging
 import time
 from datetime import datetime, timedelta
 from threading import Thread
 from typing import List
 import pytz
+
+logger = logging.getLogger(__name__)
 
 from .daily_cache_service import DailyCacheService
 
@@ -31,12 +34,12 @@ class DailyScheduler:
 
     def setup_schedule(self):
         """Setup the daily update schedule"""
-        print("📅 Daily cache scheduler initialized - will check for updates every hour during trading days")
+        logger.info("Daily cache scheduler initialized — will check for updates every hour during trading days")
 
     def run_daily_update(self):
         """Run the daily cache update"""
         try:
-            print(f"🔄 Starting daily cache update at {datetime.now()}")
+            logger.info("Starting daily cache update at %s", datetime.now())
 
             # Update cache with latest data
             success = self.cache_service.update_daily_cache(
@@ -45,16 +48,16 @@ class DailyScheduler:
             )
 
             if success:
-                print("✅ Daily cache update completed successfully")
+                logger.info("Daily cache update completed successfully")
             else:
-                print("❌ Daily cache update failed")
+                logger.error("Daily cache update failed")
 
         except Exception as e:
-            print(f"❌ Error during daily cache update: {e}")
+            logger.error("Error during daily cache update: %s", e)
 
     def run_manual_update(self, force: bool = False):
         """Manually trigger cache update"""
-        print("🔄 Running manual cache update...")
+        logger.info("Running manual cache update")
 
         return self.cache_service.update_daily_cache(
             tickers=self.portfolio_tickers,
@@ -65,17 +68,17 @@ class DailyScheduler:
     def start_scheduler(self):
         """Start the background scheduler"""
         if self.is_running:
-            print("⚠️  Scheduler is already running")
+            logger.warning("Scheduler is already running")
             return
 
         self.is_running = True
 
         def run_schedule():
-            print("🚀 Daily scheduler started")
+            logger.info("Daily scheduler started")
             while self.is_running:
                 # Check if we should update cache
                 if MarketHoursHelper.should_update_cache() and not self.cache_service.is_cache_current():
-                    print("⏰ Market closed - running daily cache update...")
+                    logger.info("Market closed — running daily cache update")
                     self.run_daily_update()
 
                 time.sleep(3600)  # Check every hour
@@ -83,7 +86,7 @@ class DailyScheduler:
         self.scheduler_thread = Thread(target=run_schedule, daemon=True)
         self.scheduler_thread.start()
 
-        print("✅ Daily scheduler is now running in background")
+        logger.info("Daily scheduler is now running in background")
 
     def stop_scheduler(self):
         """Stop the background scheduler"""
@@ -91,7 +94,7 @@ class DailyScheduler:
         if self.scheduler_thread:
             self.scheduler_thread.join(timeout=5)
 
-        print("🛑 Daily scheduler stopped")
+        logger.info("Daily scheduler stopped")
 
     def get_next_update_time(self):
         """Get the next scheduled update time"""

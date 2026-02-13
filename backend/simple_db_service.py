@@ -3,11 +3,14 @@ Simple Database Service for AlphaVelocity
 Works with current FastAPI import structure
 """
 
+import logging
 import os
 from datetime import datetime, date
 from decimal import Decimal
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 # Load environment
 load_dotenv()
@@ -202,9 +205,9 @@ def get_db_service():
                                     current_price = hist_data['Close'].iloc[-1]
                                     current_value = float(holding.shares) * current_price
                                 else:
-                                    print(f"Warning: No price data available for {security.ticker}")
+                                    logger.warning("No price data available for %s", security.ticker)
                             except Exception as e:
-                                print(f"Error fetching price for {security.ticker}: {e}")
+                                logger.error("Error fetching price for %s: %s", security.ticker, e)
                                 # Keep fallback value (cost_basis)
 
                             holding_data = {
@@ -269,7 +272,7 @@ def get_db_service():
         return SimpleDatabaseService()
 
     except Exception as e:
-        print(f"Database service initialization failed: {e}")
+        logger.error("Database service initialization failed: %s", e)
         return None
 
 # Global database service instance

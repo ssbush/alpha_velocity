@@ -10,6 +10,7 @@ import logging
 
 from ...cache import cache, get_cache
 from ...config.rate_limit_config import limiter, RateLimits
+from ...config.portfolio_config import DEFAULT_PORTFOLIO
 from .error_responses import STANDARD_ERRORS
 
 logger = logging.getLogger(__name__)
@@ -204,7 +205,6 @@ async def warmup_cache(
         
         if not tickers:
             # Use default portfolio tickers
-            from ...main import DEFAULT_PORTFOLIO
             ticker_list = list(DEFAULT_PORTFOLIO.keys())
         else:
             ticker_list = [t.strip().upper() for t in tickers.split(',')]

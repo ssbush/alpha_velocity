@@ -4,12 +4,15 @@ Database-enabled Portfolio Service for AlphaVelocity
 Manages portfolios using PostgreSQL database instead of JSON files
 """
 
+import logging
 from datetime import datetime, date
 from decimal import Decimal
 from typing import Dict, List, Optional, Tuple
 import pandas as pd
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
+
+logger = logging.getLogger(__name__)
 
 from database.config import db_config
 from models.database import (
@@ -399,7 +402,7 @@ class DatabasePortfolioService:
                         session.add(momentum_score)
                         updated_count += 1
                 except Exception as e:
-                    print(f"Error calculating momentum for {security.ticker}: {e}")
+                    logger.error("Error calculating momentum for %s: %s", security.ticker, e)
                     continue
 
             session.flush()

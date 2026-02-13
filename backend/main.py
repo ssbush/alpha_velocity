@@ -166,16 +166,7 @@ app.include_router(api_router, prefix="/api")
 
 logger.info("API versioning enabled - v1 endpoints available at /api/v1/")
 
-# Default model portfolio for demo
-DEFAULT_PORTFOLIO = {
-    "NVDA": 7, "AVGO": 4, "MSFT": 2, "META": 1, "NOW": 1, "AAPL": 4, "GOOGL": 4,
-    "VRT": 7, "MOD": 10, "BE": 30, "UI": 3,
-    "DLR": 6, "SRVR": 58, "IRM": 10, "CCI": 10,
-    "EWJ": 14, "EWT": 17,
-    "SHY": 13,
-    "XLI": 7,
-    "MP": 16
-}
+from .config.portfolio_config import DEFAULT_PORTFOLIO
 
 # Initialize services
 momentum_engine = MomentumEngine()

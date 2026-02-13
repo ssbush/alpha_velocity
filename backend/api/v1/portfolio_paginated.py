@@ -12,6 +12,7 @@ from ...services.momentum_engine import MomentumEngine
 from ...services.portfolio_service import PortfolioService
 from ...models.portfolio import Portfolio
 from ...config.rate_limit_config import limiter, RateLimits
+from ...config.portfolio_config import DEFAULT_PORTFOLIO
 from ...utils.pagination import paginate_dataframe
 from .error_responses import STANDARD_ERRORS, VALIDATION_ERRORS
 
@@ -50,8 +51,6 @@ async def analyze_default_portfolio_paginated(
     **Rate Limit:** 100 requests/minute (public), 200 requests/minute (authenticated)
     """
     try:
-        from ...main import DEFAULT_PORTFOLIO
-        
         logger.info(
             f"Analyzing default portfolio with pagination "
             f"(page={page}, page_size={page_size}, sort={sort_by} {sort_order})"

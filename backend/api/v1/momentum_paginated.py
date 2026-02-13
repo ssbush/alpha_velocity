@@ -12,6 +12,7 @@ from ...services.momentum_engine import MomentumEngine
 from ...services.portfolio_service import PortfolioService
 from ...validators.validators import sanitize_string
 from ...config.rate_limit_config import limiter, RateLimits
+from ...config.portfolio_config import DEFAULT_PORTFOLIO
 from ...utils.pagination import paginate, PaginationParams
 from .error_responses import RESOURCE_ERRORS
 
@@ -56,8 +57,6 @@ async def get_top_momentum_stocks_paginated(
     ```
     """
     try:
-        from ...main import DEFAULT_PORTFOLIO
-        
         logger.info(
             f"Getting top momentum stocks (page={page}, page_size={page_size}, "
             f"category={category}, sort={sort_by} {sort_order})"

@@ -3,11 +3,14 @@ User Portfolio Service
 Handles portfolio CRUD operations for authenticated users
 """
 
+import logging
 from typing import Any, Optional, List, Dict
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from datetime import date, datetime
 from decimal import Decimal
+
+logger = logging.getLogger(__name__)
 
 from ..models.database import (
     Portfolio, Holding, Transaction, SecurityMaster,
@@ -121,7 +124,7 @@ class UserPortfolioService:
                 for ticker in category_info['tickers']:
                     ticker_to_category[ticker] = category_name
         except Exception as e:
-            print(f"Warning: Could not load category mapping: {e}")
+            logger.warning("Could not load category mapping: %s", e)
             ticker_to_category = {}
 
         # Import yfinance for sector lookup
@@ -147,7 +150,7 @@ class UserPortfolioService:
                     else:
                         category_name = "Other Holdings"
                 except Exception as e:
-                    print(f"Could not fetch sector for {holding.security.ticker}: {e}")
+                    logger.warning("Could not fetch sector for %s: %s", holding.security.ticker, e)
                     category_name = "Other Holdings"
 
             result.append({

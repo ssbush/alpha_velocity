@@ -12,6 +12,7 @@ from ...services.momentum_engine import MomentumEngine
 from ...services.portfolio_service import PortfolioService
 from ...models.portfolio import Portfolio, PortfolioAnalysis, PortfolioHolding
 from ...config.rate_limit_config import limiter, RateLimits
+from ...config.portfolio_config import DEFAULT_PORTFOLIO
 from .error_responses import STANDARD_ERRORS, VALIDATION_ERRORS
 
 logger = logging.getLogger(__name__)
@@ -38,8 +39,6 @@ async def analyze_default_portfolio(request: Request):
     **Rate Limit:** 100 requests/minute (public), 200 requests/minute (authenticated)
     """
     try:
-        from ...main import DEFAULT_PORTFOLIO
-        
         logger.info("Analyzing default portfolio")
         df, total_value, avg_score = portfolio_service.analyze_portfolio(DEFAULT_PORTFOLIO)
         
@@ -152,8 +151,6 @@ async def analyze_portfolio_by_categories(request: Request):
     **Rate Limit:** 100 requests/minute (public), 200 requests/minute (authenticated)
     """
     try:
-        from ...main import DEFAULT_PORTFOLIO
-        
         logger.info("Analyzing portfolio by categories")
         result = portfolio_service.get_portfolio_by_categories(DEFAULT_PORTFOLIO)
         

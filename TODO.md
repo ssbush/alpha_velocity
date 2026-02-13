@@ -113,7 +113,7 @@
 - [x] Request/response logging middleware *(2026-01-24)*
 - [x] Audit middleware *(2026-01-24)*
 - [x] Performance monitoring middleware *(2026-01-24)*
-- [ ] Replace remaining `print()` in migration scripts
+- [x] Replace remaining `print()` in backend services with structured logging *(2026-02-12)*
 - [ ] Integrate APM tool (Sentry/DataDog) for production monitoring
 - [ ] Set up alerts for error rate spikes and slow requests
 
@@ -159,7 +159,7 @@
 
 ## Code Quality
 
-- [ ] Extract hardcoded `DEFAULT_PORTFOLIO` to config/constants
+- [x] Extract hardcoded `DEFAULT_PORTFOLIO` to `backend/config/portfolio_config.py` *(2026-02-12)*
 - [ ] Centralize price fetching logic into dedicated service
 - [ ] Remove duplicate code in portfolio services
 - [ ] Consolidate API response formatting

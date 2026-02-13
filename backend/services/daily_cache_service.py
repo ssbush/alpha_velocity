@@ -4,12 +4,15 @@ Handles daily sampling of stock prices and momentum scores for improved performa
 """
 
 import json
+import logging
 import yfinance as yf
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import pandas as pd
 import pytz
+
+logger = logging.getLogger(__name__)
 
 
 class DailyCacheService:
@@ -104,7 +107,7 @@ class DailyCacheService:
         prices = {}
         failed_tickers = []
 
-        print(f"Fetching daily prices for {len(tickers)} tickers for {date}...")
+        logger.info("Fetching daily prices for %d tickers for %s", len(tickers), date)
 
         for ticker in tickers:
             try:
@@ -138,17 +141,17 @@ class DailyCacheService:
                             close_price = stock_data['Close'].iloc[-1]
 
                     prices[ticker] = float(close_price)
-                    print(f"  ✓ {ticker}: ${close_price:.2f}")
+                    logger.info("Fetched price for %s: $%.2f", ticker, close_price)
                 else:
                     failed_tickers.append(ticker)
-                    print(f"  ✗ {ticker}: No data available")
+                    logger.warning("No data available for %s", ticker)
 
             except Exception as e:
                 failed_tickers.append(ticker)
-                print(f"  ✗ {ticker}: Error - {e}")
+                logger.error("Error fetching price for %s: %s", ticker, e)
 
         if failed_tickers:
-            print(f"Failed to fetch prices for: {failed_tickers}")
+            logger.warning("Failed to fetch prices for: %s", failed_tickers)
 
         return prices
 
@@ -161,7 +164,7 @@ class DailyCacheService:
         momentum_scores = {}
         failed_tickers = []
 
-        print(f"Calculating momentum scores for {len(tickers)} tickers for {date}...")
+        logger.info("Calculating momentum scores for %d tickers for %s", len(tickers), date)
 
         for ticker in tickers:
             try:
@@ -178,14 +181,14 @@ class DailyCacheService:
                     'relative_momentum': result['relative_momentum']
                 }
 
-                print(f"  ✓ {ticker}: {result['composite_score']:.1f} ({result['rating']})")
+                logger.info("Calculated momentum for %s: %.1f (%s)", ticker, result['composite_score'], result['rating'])
 
             except Exception as e:
                 failed_tickers.append(ticker)
-                print(f"  ✗ {ticker}: Error calculating momentum - {e}")
+                logger.error("Error calculating momentum for %s: %s", ticker, e)
 
         if failed_tickers:
-            print(f"Failed to calculate momentum for: {failed_tickers}")
+            logger.warning("Failed to calculate momentum for: %s", failed_tickers)
 
         return momentum_scores
 
@@ -197,24 +200,24 @@ class DailyCacheService:
 
         # Check if cache is already current
         if not force_update and self.is_cache_current(date):
-            print(f"Cache is already current for {date}")
+            logger.info("Cache is already current for %s", date)
             return True
 
-        print(f"Updating daily cache for {date}...")
+        logger.info("Updating daily cache for %s", date)
 
         try:
             # Fetch daily prices
             daily_prices = self.fetch_daily_prices(tickers, date)
 
             if not daily_prices:
-                print("No prices fetched, cache update failed")
+                logger.error("No prices fetched, cache update failed")
                 return False
 
             # Calculate momentum scores
             daily_momentum = self.calculate_daily_momentum(tickers, momentum_engine, date)
 
             if not daily_momentum:
-                print("No momentum scores calculated, cache update failed")
+                logger.error("No momentum scores calculated, cache update failed")
                 return False
 
             # Load existing cache data
@@ -254,9 +257,10 @@ class DailyCacheService:
             with open(self.cache_metadata_file, 'w') as f:
                 json.dump(metadata, f, indent=2)
 
-            print(f"✅ Daily cache updated successfully for {date}")
-            print(f"   - Cached {len(daily_prices)} tickers")
-            print(f"   - Total historical dates: {len(all_prices)}")
+            logger.info(
+                "Daily cache updated successfully for %s — cached %d tickers, %d total dates",
+                date, len(daily_prices), len(all_prices)
+            )
 
             # Record daily portfolio snapshot using cached data
             self._record_daily_portfolio_snapshot(date)
@@ -264,7 +268,7 @@ class DailyCacheService:
             return True
 
         except Exception as e:
-            print(f"❌ Failed to update daily cache: {e}")
+            logger.error("Failed to update daily cache: %s", e)
             return False
 
     def _record_daily_portfolio_snapshot(self, date: str):
@@ -272,15 +276,9 @@ class DailyCacheService:
         try:
             # Import here to avoid circular imports
             from .historical_service import HistoricalDataService
+            from ..config.portfolio_config import DEFAULT_PORTFOLIO
 
-            # Get the default portfolio tickers and shares
-            # This should match the DEFAULT_PORTFOLIO from main.py
-            default_portfolio = {
-                'AAPL': 10, 'NVDA': 5, 'TSM': 7, 'GOOGL': 3, 'MSFT': 8, 'META': 4,
-                'AMD': 6, 'ASML': 3, 'AVGO': 2, 'TSLA': 3, 'PLTR': 15, 'CSCO': 20,
-                'ORCL': 8, 'NOW': 4, 'DLR': 5, 'AMT': 3, 'CCI': 10, 'EQIX': 2,
-                'VCIT': 50
-            }
+            default_portfolio = DEFAULT_PORTFOLIO
 
             # Get cached prices and momentum for the date
             cached_prices = {}
@@ -338,13 +336,13 @@ class DailyCacheService:
                 historical_service = HistoricalDataService()
                 historical_service.record_portfolio_snapshot('default', portfolio_snapshot)
 
-                print(f"📊 Recorded daily portfolio snapshot for {date}")
-                print(f"   - Portfolio value: ${total_value:,.2f}")
-                print(f"   - Average momentum: {avg_momentum:.1f}")
-                print(f"   - Valid positions: {valid_positions}")
+                logger.info(
+                    "Recorded daily portfolio snapshot for %s — value: $%,.2f, avg momentum: %.1f, positions: %d",
+                    date, total_value, avg_momentum, valid_positions
+                )
 
         except Exception as e:
-            print(f"Warning: Failed to record daily portfolio snapshot: {e}")
+            logger.warning("Failed to record daily portfolio snapshot: %s", e)
 
     def get_historical_prices(self, ticker: str, days: int = 30) -> List[Tuple[str, float]]:
         """Get historical prices for a ticker from cache"""

@@ -12,6 +12,7 @@ from ...services.momentum_engine import MomentumEngine
 from ...models.momentum import MomentumScore
 from ...validators.validators import validate_ticker, validate_limit
 from ...config.rate_limit_config import limiter, RateLimits
+from ...config.portfolio_config import DEFAULT_PORTFOLIO
 from .error_responses import MOMENTUM_ERRORS, VALIDATION_ERRORS
 
 logger = logging.getLogger(__name__)
@@ -79,9 +80,7 @@ async def get_top_momentum_stocks(
         
         logger.info(f"Getting top {limit} momentum stocks (category: {category})")
         
-        # Import here to avoid circular dependency
         from ...services.portfolio_service import PortfolioService
-        from ...main import DEFAULT_PORTFOLIO
         
         portfolio_service = PortfolioService(momentum_engine)
         

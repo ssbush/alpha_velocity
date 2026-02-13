@@ -236,7 +236,6 @@ class TestMetricsAPI:
 
         assert response.status_code == 200
         data = response.json()
-        assert data['success'] is True
         assert 'data' in data
 
     def test_get_endpoint_summary(self):
@@ -248,7 +247,6 @@ class TestMetricsAPI:
 
         assert response.status_code == 200
         data = response.json()
-        assert data['success'] is True
         assert 'summary' in data
         assert 'endpoints' in data
 
@@ -258,7 +256,6 @@ class TestMetricsAPI:
 
         assert response.status_code == 200
         data = response.json()
-        assert data['success'] is True
         assert 'endpoints' in data
 
     def test_reset_metrics_via_api(self):
@@ -269,7 +266,7 @@ class TestMetricsAPI:
 
         assert response.status_code == 200
         data = response.json()
-        assert data['success'] is True
+        assert 'message' in data
 
 
 class TestAuditMiddleware:

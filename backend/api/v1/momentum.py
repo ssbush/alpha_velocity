@@ -10,6 +10,7 @@ import logging
 
 from ...services.momentum_engine import MomentumEngine
 from ...models.momentum import MomentumScore
+from ...models.api_responses import TopMomentumResponse
 from ...validators.validators import validate_ticker, validate_limit
 from ...config.rate_limit_config import limiter, RateLimits
 from ...config.portfolio_config import DEFAULT_PORTFOLIO
@@ -55,7 +56,7 @@ async def get_momentum_score(request: Request, ticker: str):
     return MomentumScore(**result)
 
 
-@router.get("/top/{limit}", responses=VALIDATION_ERRORS)
+@router.get("/top/{limit}", response_model=TopMomentumResponse, responses=VALIDATION_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_top_momentum_stocks(
     request: Request,

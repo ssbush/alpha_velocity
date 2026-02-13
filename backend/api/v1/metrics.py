@@ -13,6 +13,12 @@ from ...middleware.performance_middleware import (
     reset_performance_stats
 )
 from ...config.rate_limit_config import limiter, RateLimits
+from ...models.api_responses import (
+    PerformanceMetricsResponse,
+    MetricsResetResponse,
+    EndpointSummaryResponse,
+    SlowEndpointsResponse,
+)
 from .error_responses import STANDARD_ERRORS
 
 logger = logging.getLogger(__name__)
@@ -20,7 +26,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.get("/performance", responses=STANDARD_ERRORS)
+@router.get("/performance", response_model=PerformanceMetricsResponse, responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_performance_metrics(
     request: Request,
@@ -55,9 +61,7 @@ async def get_performance_metrics(
         stats = get_performance_stats(endpoint)
 
         return {
-            'success': True,
             'data': stats,
-            'message': f"Performance metrics retrieved for {endpoint or 'all endpoints'}"
         }
 
     except Exception as e:
@@ -65,7 +69,7 @@ async def get_performance_metrics(
         raise HTTPException(status_code=500, detail=f"Failed to retrieve performance metrics: {str(e)}")
 
 
-@router.delete("/performance/reset", responses=STANDARD_ERRORS)
+@router.delete("/performance/reset", response_model=MetricsResetResponse, responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.ADMIN)
 async def reset_performance_metrics(
     request: Request,
@@ -101,7 +105,6 @@ async def reset_performance_metrics(
         )
 
         return {
-            'success': True,
             'message': f"Performance metrics reset for {endpoint or 'all endpoints'}"
         }
 
@@ -110,7 +113,7 @@ async def reset_performance_metrics(
         raise HTTPException(status_code=500, detail=f"Failed to reset performance metrics: {str(e)}")
 
 
-@router.get("/endpoints", responses=STANDARD_ERRORS)
+@router.get("/endpoints", response_model=EndpointSummaryResponse, responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_endpoint_summary(request: Request):
     """
@@ -149,14 +152,12 @@ async def get_endpoint_summary(request: Request):
         )
 
         return {
-            'success': True,
             'summary': {
                 'total_endpoints': len(endpoints),
                 'total_requests': total_requests,
                 'avg_duration_ms': round(avg_duration, 2)
             },
             'endpoints': endpoints_sorted,
-            'message': "Endpoint summary retrieved successfully"
         }
 
     except Exception as e:
@@ -164,7 +165,7 @@ async def get_endpoint_summary(request: Request):
         raise HTTPException(status_code=500, detail=f"Failed to retrieve endpoint summary: {str(e)}")
 
 
-@router.get("/slow", responses=STANDARD_ERRORS)
+@router.get("/slow", response_model=SlowEndpointsResponse, responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_slow_endpoints(
     request: Request,
@@ -206,11 +207,9 @@ async def get_slow_endpoints(
         )
 
         return {
-            'success': True,
             'threshold_ms': threshold_ms,
             'count': len(slow_endpoints_sorted),
             'endpoints': slow_endpoints_sorted,
-            'message': f"Found {len(slow_endpoints_sorted)} slow endpoints"
         }
 
     except Exception as e:

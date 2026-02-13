@@ -14,6 +14,7 @@ from ...services.concurrent_momentum import ConcurrentMomentumEngine
 from ...validators.validators import validate_ticker
 from ...exceptions import InvalidTickerError
 from ...config.rate_limit_config import limiter, RateLimits
+from ...models.api_responses import BatchTopResponse, ConcurrentCompareResponse
 from .error_responses import VALIDATION_ERRORS
 
 logger = logging.getLogger(__name__)
@@ -148,7 +149,7 @@ async def calculate_batch_momentum(
         )
 
 
-@router.post("/batch/top", responses=VALIDATION_ERRORS)
+@router.post("/batch/top", response_model=BatchTopResponse, responses=VALIDATION_ERRORS)
 @limiter.limit(RateLimits.EXPENSIVE)
 async def get_top_from_batch(
     request: Request,
@@ -235,7 +236,7 @@ async def get_top_from_batch(
         )
 
 
-@router.get("/concurrent/compare", responses=VALIDATION_ERRORS)
+@router.get("/concurrent/compare", response_model=ConcurrentCompareResponse, responses=VALIDATION_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def compare_sequential_vs_concurrent(
     request: Request,

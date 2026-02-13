@@ -73,13 +73,13 @@ class TestV1MetricsEndpoints:
         resp = client.get("/api/v1/metrics/performance")
         assert resp.status_code == 200
         data = resp.json()
-        assert "success" in data
+        assert "data" in data
 
     def test_performance_metrics_with_endpoint(self):
         resp = client.get("/api/v1/metrics/performance?endpoint=/")
         assert resp.status_code == 200
         data = resp.json()
-        assert "success" in data
+        assert "data" in data
 
     def test_reset_performance_with_endpoint(self):
         resp = client.request(
@@ -87,7 +87,7 @@ class TestV1MetricsEndpoints:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["success"] is True
+        assert "message" in data
 
 
 class TestV1MomentumValidation:

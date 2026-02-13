@@ -162,7 +162,7 @@
 - [x] Extract hardcoded `DEFAULT_PORTFOLIO` to `backend/config/portfolio_config.py` *(2026-02-12)*
 - [x] Centralize price fetching logic into dedicated service (`backend/services/price_service.py`) *(2026-02-12)*
 - [x] Remove duplicate code in portfolio services *(2026-02-12)*
-- [ ] Consolidate API response formatting
+- [x] Consolidate API response formatting *(2026-02-13)*
 - [ ] Add docstrings to all public functions
 
 ---

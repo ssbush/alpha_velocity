@@ -24,7 +24,7 @@ momentum_engine = MomentumEngine()
 portfolio_service = PortfolioService(momentum_engine)
 
 
-@router.get("/analysis", responses=STANDARD_ERRORS)
+@router.get("/analysis", response_model=PortfolioAnalysis, responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def analyze_default_portfolio(request: Request):
     """

@@ -17,11 +17,13 @@ from .cache import router as cache_router
 from .cache_admin import router as cache_admin_router
 from .metrics import router as metrics_router
 from .historical import router as historical_router
+from .errors import router as errors_router
 
 # Create v1 API router
 api_router = APIRouter()
 
 # Include all routers
+api_router.include_router(errors_router, prefix="/errors", tags=["errors"])
 api_router.include_router(momentum_router, prefix="/momentum", tags=["momentum"])
 api_router.include_router(momentum_paginated_router, prefix="/momentum", tags=["momentum-paginated"])
 api_router.include_router(momentum_batch_router, prefix="/momentum", tags=["momentum-batch"])

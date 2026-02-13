@@ -13,6 +13,7 @@ from ...services.portfolio_service import PortfolioService
 from ...models.portfolio import CategoryInfo, CategoryAnalysis
 from ...validators.validators import sanitize_string
 from ...config.rate_limit_config import limiter, RateLimits
+from .error_responses import STANDARD_ERRORS, RESOURCE_ERRORS
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ momentum_engine = MomentumEngine()
 portfolio_service = PortfolioService(momentum_engine)
 
 
-@router.get("", response_model=List[CategoryInfo])
+@router.get("", response_model=List[CategoryInfo], responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_categories(request: Request):
     """
@@ -61,7 +62,7 @@ async def get_categories(request: Request):
         )
 
 
-@router.get("/{category_name}/analysis", response_model=CategoryAnalysis)
+@router.get("/{category_name}/analysis", response_model=CategoryAnalysis, responses=RESOURCE_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def analyze_category(request: Request, category_name: str):
     """
@@ -100,7 +101,7 @@ async def analyze_category(request: Request, category_name: str):
         )
 
 
-@router.get("/{category_name}/tickers")
+@router.get("/{category_name}/tickers", responses=RESOURCE_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_category_tickers(request: Request, category_name: str):
     """

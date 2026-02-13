@@ -12,6 +12,7 @@ from ...services.momentum_engine import MomentumEngine
 from ...models.momentum import MomentumScore
 from ...validators.validators import validate_ticker, validate_limit
 from ...config.rate_limit_config import limiter, RateLimits
+from .error_responses import MOMENTUM_ERRORS, VALIDATION_ERRORS
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,7 @@ router = APIRouter()
 momentum_engine = MomentumEngine()
 
 
-@router.get("/{ticker}", response_model=MomentumScore)
+@router.get("/{ticker}", response_model=MomentumScore, responses=MOMENTUM_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_momentum_score(request: Request, ticker: str):
     """
@@ -53,7 +54,7 @@ async def get_momentum_score(request: Request, ticker: str):
     return MomentumScore(**result)
 
 
-@router.get("/top/{limit}")
+@router.get("/top/{limit}", responses=VALIDATION_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_top_momentum_stocks(
     request: Request,

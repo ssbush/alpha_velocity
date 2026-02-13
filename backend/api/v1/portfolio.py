@@ -12,6 +12,7 @@ from ...services.momentum_engine import MomentumEngine
 from ...services.portfolio_service import PortfolioService
 from ...models.portfolio import Portfolio, PortfolioAnalysis, PortfolioHolding
 from ...config.rate_limit_config import limiter, RateLimits
+from .error_responses import STANDARD_ERRORS, VALIDATION_ERRORS
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ momentum_engine = MomentumEngine()
 portfolio_service = PortfolioService(momentum_engine)
 
 
-@router.get("/analysis")
+@router.get("/analysis", responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def analyze_default_portfolio(request: Request):
     """
@@ -72,7 +73,7 @@ async def analyze_default_portfolio(request: Request):
         )
 
 
-@router.post("/analyze", response_model=PortfolioAnalysis)
+@router.post("/analyze", response_model=PortfolioAnalysis, responses=VALIDATION_ERRORS)
 @limiter.limit(RateLimits.EXPENSIVE)
 async def analyze_custom_portfolio(request: Request, portfolio: Portfolio):
     """
@@ -137,7 +138,7 @@ async def analyze_custom_portfolio(request: Request, portfolio: Portfolio):
         )
 
 
-@router.get("/analysis/by-categories")
+@router.get("/analysis/by-categories", responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def analyze_portfolio_by_categories(request: Request):
     """
@@ -166,7 +167,7 @@ async def analyze_portfolio_by_categories(request: Request):
         )
 
 
-@router.post("/analyze/by-categories")
+@router.post("/analyze/by-categories", responses=VALIDATION_ERRORS)
 @limiter.limit(RateLimits.EXPENSIVE)
 async def analyze_custom_portfolio_by_categories(request: Request, portfolio: Portfolio):
     """

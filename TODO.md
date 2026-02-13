@@ -106,7 +106,7 @@
 - [x] Fix: `momentum_batch.py` catches `ValueError` but `validate_ticker` raises `InvalidTickerError` *(2026-02-09)*
 - [x] Fix: `InMemoryCache.clear()` doesn't accept `pattern` argument *(2026-02-09)*
 - [x] Fix: `PerformanceMetrics.get_all_stats()` deadlock — re-entrant lock *(2026-02-09)*
-- [ ] Add error code documentation for API consumers
+- [x] Add error code documentation for API consumers *(2026-02-12)*
 
 ### 10. Logging & Monitoring
 - [x] Structured logging with JSON/colored formatters *(2026-01-24)*

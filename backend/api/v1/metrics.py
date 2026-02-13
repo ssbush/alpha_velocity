@@ -13,13 +13,14 @@ from ...middleware.performance_middleware import (
     reset_performance_stats
 )
 from ...config.rate_limit_config import limiter, RateLimits
+from .error_responses import STANDARD_ERRORS
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-@router.get("/performance")
+@router.get("/performance", responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_performance_metrics(
     request: Request,
@@ -64,7 +65,7 @@ async def get_performance_metrics(
         raise HTTPException(status_code=500, detail=f"Failed to retrieve performance metrics: {str(e)}")
 
 
-@router.delete("/performance/reset")
+@router.delete("/performance/reset", responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.ADMIN)
 async def reset_performance_metrics(
     request: Request,
@@ -109,7 +110,7 @@ async def reset_performance_metrics(
         raise HTTPException(status_code=500, detail=f"Failed to reset performance metrics: {str(e)}")
 
 
-@router.get("/endpoints")
+@router.get("/endpoints", responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_endpoint_summary(request: Request):
     """
@@ -163,7 +164,7 @@ async def get_endpoint_summary(request: Request):
         raise HTTPException(status_code=500, detail=f"Failed to retrieve endpoint summary: {str(e)}")
 
 
-@router.get("/slow")
+@router.get("/slow", responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_slow_endpoints(
     request: Request,

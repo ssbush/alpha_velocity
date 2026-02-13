@@ -13,6 +13,7 @@ from ...services.portfolio_service import PortfolioService
 from ...models.portfolio import Portfolio
 from ...config.rate_limit_config import limiter, RateLimits
 from ...utils.pagination import paginate_dataframe
+from .error_responses import STANDARD_ERRORS, VALIDATION_ERRORS
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ momentum_engine = MomentumEngine()
 portfolio_service = PortfolioService(momentum_engine)
 
 
-@router.get("/analysis/paginated")
+@router.get("/analysis/paginated", responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def analyze_default_portfolio_paginated(
     request: Request,
@@ -110,7 +111,7 @@ async def analyze_default_portfolio_paginated(
         )
 
 
-@router.post("/analyze/paginated")
+@router.post("/analyze/paginated", responses=VALIDATION_ERRORS)
 @limiter.limit(RateLimits.EXPENSIVE)
 async def analyze_custom_portfolio_paginated(
     request: Request,

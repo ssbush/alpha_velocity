@@ -9,6 +9,7 @@ import logging
 
 from ...services.momentum_engine import MomentumEngine
 from ...config.rate_limit_config import limiter, RateLimits
+from .error_responses import STANDARD_ERRORS
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,7 @@ router = APIRouter()
 momentum_engine = MomentumEngine()
 
 
-@router.get("/status")
+@router.get("/status", responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_cache_status(request: Request):
     """
@@ -58,7 +59,7 @@ async def get_cache_status(request: Request):
         )
 
 
-@router.post("/clear")
+@router.post("/clear", responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.BULK)
 async def clear_cache(request: Request):
     """

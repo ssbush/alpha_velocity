@@ -10,13 +10,14 @@ import logging
 
 from ...cache import cache, get_cache
 from ...config.rate_limit_config import limiter, RateLimits
+from .error_responses import STANDARD_ERRORS
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-@router.get("/info")
+@router.get("/info", responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_cache_info(request: Request):
     """
@@ -47,7 +48,7 @@ async def get_cache_info(request: Request):
         )
 
 
-@router.get("/keys")
+@router.get("/keys", responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def list_cache_keys(
     request: Request,
@@ -87,7 +88,7 @@ async def list_cache_keys(
         )
 
 
-@router.delete("/clear")
+@router.delete("/clear", responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.BULK)
 async def clear_cache_pattern(
     request: Request,
@@ -137,7 +138,7 @@ async def clear_cache_pattern(
         )
 
 
-@router.get("/stats")
+@router.get("/stats", responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_cache_stats(request: Request):
     """
@@ -180,7 +181,7 @@ async def get_cache_stats(request: Request):
         )
 
 
-@router.post("/warmup")
+@router.post("/warmup", responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.BULK)
 async def warmup_cache(
     request: Request,

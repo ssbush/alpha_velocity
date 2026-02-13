@@ -14,6 +14,7 @@ from ...services.historical_service import HistoricalDataService
 from ...validators.validators import sanitize_string
 from ...config.rate_limit_config import limiter, RateLimits
 from ...utils.pagination import paginate
+from .error_responses import STANDARD_ERRORS
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ momentum_engine = MomentumEngine()
 historical_service = momentum_engine.historical_service
 
 
-@router.get("/momentum/{ticker}")
+@router.get("/momentum/{ticker}", responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_momentum_history_paginated(
     request: Request,
@@ -121,7 +122,7 @@ async def get_momentum_history_paginated(
         )
 
 
-@router.get("/portfolio/{portfolio_id}")
+@router.get("/portfolio/{portfolio_id}", responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_portfolio_history_paginated(
     request: Request,
@@ -179,7 +180,7 @@ async def get_portfolio_history_paginated(
         )
 
 
-@router.get("/top-performers")
+@router.get("/top-performers", responses=STANDARD_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_top_performers_paginated(
     request: Request,

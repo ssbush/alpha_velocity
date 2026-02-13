@@ -13,6 +13,7 @@ from ...services.portfolio_service import PortfolioService
 from ...validators.validators import sanitize_string
 from ...config.rate_limit_config import limiter, RateLimits
 from ...utils.pagination import paginate, PaginationParams
+from .error_responses import RESOURCE_ERRORS
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ momentum_engine = MomentumEngine()
 portfolio_service = PortfolioService(momentum_engine)
 
 
-@router.get("/top")
+@router.get("/top", responses=RESOURCE_ERRORS)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_top_momentum_stocks_paginated(
     request: Request,

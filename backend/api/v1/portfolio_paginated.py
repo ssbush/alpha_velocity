@@ -12,7 +12,7 @@ from ...services.momentum_engine import MomentumEngine
 from ...services.portfolio_service import PortfolioService
 from ...models.portfolio import Portfolio
 from ...config.rate_limit_config import limiter, RateLimits
-from ...config.portfolio_config import DEFAULT_PORTFOLIO
+from ...config.portfolio_config import DEFAULT_PORTFOLIO, SORT_COLUMN_MAP
 from ...utils.pagination import paginate_dataframe
 from .error_responses import STANDARD_ERRORS, VALIDATION_ERRORS
 
@@ -59,46 +59,20 @@ async def analyze_default_portfolio_paginated(
         # Analyze portfolio
         df, total_value, avg_score = portfolio_service.analyze_portfolio(DEFAULT_PORTFOLIO)
         
-        # Map sort_by to DataFrame column
-        column_map = {
-            'momentum_score': 'Momentum_Score',
-            'ticker': 'Ticker',
-            'market_value': 'Market_Value',
-            'portfolio_percent': 'Portfolio_%',
-            'price': 'Price',
-            'shares': 'Shares'
-        }
-        sort_column = column_map.get(sort_by, 'Momentum_Score')
-        
-        # Sort DataFrame
+        sort_column = SORT_COLUMN_MAP.get(sort_by, 'Momentum_Score')
+
+        # Sort and paginate DataFrame
         ascending = (sort_order == 'asc')
         df_sorted = df.sort_values(by=sort_column, ascending=ascending)
-        
-        # Paginate DataFrame
         paginated = paginate_dataframe(df_sorted, page=page, page_size=page_size)
-        
-        # Convert paginated DataFrame to list
-        holdings = []
-        for _, row in paginated['items'].iterrows():
-            holdings.append({
-                'ticker': row['Ticker'],
-                'shares': row['Shares'],
-                'price': row['Price'],
-                'market_value': row['Market_Value'],
-                'portfolio_percent': row['Portfolio_%'],
-                'momentum_score': row['Momentum_Score'],
-                'rating': row['Rating'],
-                'price_momentum': row['Price_Momentum'],
-                'technical_momentum': row['Technical_Momentum']
-            })
-        
+
         return {
             'summary': {
                 'total_value': total_value,
                 'average_momentum_score': avg_score,
                 'total_positions': len(DEFAULT_PORTFOLIO)
             },
-            'holdings': holdings,
+            'holdings': PortfolioService.dataframe_to_holdings(paginated['items']),
             'metadata': paginated['metadata']
         }
         
@@ -158,46 +132,20 @@ async def analyze_custom_portfolio_paginated(
         # Analyze portfolio
         df, total_value, avg_score = portfolio_service.analyze_portfolio(portfolio.holdings)
         
-        # Map sort_by to DataFrame column
-        column_map = {
-            'momentum_score': 'Momentum_Score',
-            'ticker': 'Ticker',
-            'market_value': 'Market_Value',
-            'portfolio_percent': 'Portfolio_%',
-            'price': 'Price',
-            'shares': 'Shares'
-        }
-        sort_column = column_map.get(sort_by, 'Momentum_Score')
-        
-        # Sort DataFrame
+        sort_column = SORT_COLUMN_MAP.get(sort_by, 'Momentum_Score')
+
+        # Sort and paginate DataFrame
         ascending = (sort_order == 'asc')
         df_sorted = df.sort_values(by=sort_column, ascending=ascending)
-        
-        # Paginate DataFrame
         paginated = paginate_dataframe(df_sorted, page=page, page_size=page_size)
-        
-        # Convert to list
-        holdings = []
-        for _, row in paginated['items'].iterrows():
-            holdings.append({
-                'ticker': row['Ticker'],
-                'shares': row['Shares'],
-                'price': row['Price'],
-                'market_value': row['Market_Value'],
-                'portfolio_percent': row['Portfolio_%'],
-                'momentum_score': row['Momentum_Score'],
-                'rating': row['Rating'],
-                'price_momentum': row['Price_Momentum'],
-                'technical_momentum': row['Technical_Momentum']
-            })
-        
+
         return {
             'summary': {
                 'total_value': total_value,
                 'average_momentum_score': avg_score,
                 'total_positions': len(portfolio.holdings)
             },
-            'holdings': holdings,
+            'holdings': PortfolioService.dataframe_to_holdings(paginated['items']),
             'metadata': paginated['metadata']
         }
         

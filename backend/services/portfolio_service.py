@@ -3,6 +3,7 @@ from typing import Dict, List, Optional, Tuple, Any
 import logging
 from .momentum_engine import MomentumEngine
 from .price_service import PriceService
+from ..config.portfolio_config import PORTFOLIO_CATEGORIES, SORT_COLUMN_MAP
 
 logger = logging.getLogger(__name__)
 
@@ -12,50 +13,47 @@ class PortfolioService:
     def __init__(self, momentum_engine: Optional[MomentumEngine] = None, price_service: Optional[PriceService] = None) -> None:
         self.momentum_engine: MomentumEngine = momentum_engine or MomentumEngine()
         self.price_service: PriceService = price_service or PriceService()
+        self.portfolio_categories: Dict[str, Dict[str, Any]] = PORTFOLIO_CATEGORIES
 
-        # Portfolio categories with target allocations
-        self.portfolio_categories: Dict[str, Dict[str, Any]] = {
-            'Large-Cap Anchors': {
-                'tickers': ['NVDA', 'TSM', 'ASML', 'AVGO', 'MSFT', 'META', 'AAPL', 'AMD', 'GOOGL', 'TSLA', 'PLTR', 'CSCO', 'CRWV', 'ORCL', 'DT', 'AUR', 'MBLY', 'NOW'],
-                'target_allocation': 0.20,
-                'benchmark': 'QQQ'
-            },
-            'Small-Cap Specialists': {
-                'tickers': ['VRT', 'MOD', 'BE', 'CIEN', 'ATKR', 'UI', 'APLD', 'SMCI', 'GDS', 'VNET'],
-                'target_allocation': 0.15,
-                'benchmark': 'XLK'
-            },
-            'Data Center Infrastructure': {
-                'tickers': ['SRVR', 'DLR', 'EQIX', 'AMT', 'CCI', 'COR', 'IRM', 'ACM', 'JCI', 'IDGT', 'DTCR'],
-                'target_allocation': 0.15,
-                'benchmark': 'VNQ'
-            },
-            'International Tech/Momentum': {
-                'tickers': ['EWJ', 'EWT', 'INDA', 'EWY'],
-                'target_allocation': 0.12,
-                'benchmark': 'VEA'
-            },
-            'Tactical Fixed Income': {
-                'tickers': ['SHY', 'VCIT', 'IPE'],
-                'target_allocation': 0.08,
-                'benchmark': 'AGG'
-            },
-            'Sector Momentum Rotation': {
-                'tickers': ['XLE', 'XLF', 'XLI', 'XLU', 'XLB'],
-                'target_allocation': 0.10,
-                'benchmark': 'SPY'
-            },
-            'Critical Metals & Mining': {
-                'tickers': ['MP', 'LYC', 'ARA', 'ALB', 'SQM', 'LAC', 'FCX', 'SCCO', 'TECK'],
-                'target_allocation': 0.07,
-                'benchmark': 'XLB'
-            },
-            'Specialized Materials ETFs': {
-                'tickers': ['REMX', 'LIT', 'XMET'],
-                'target_allocation': 0.05,
-                'benchmark': 'XLB'
-            }
-        }
+    def _fetch_position_values(self, portfolio: Dict[str, int]) -> Tuple[Dict[str, float], Dict[str, float], float]:
+        """Fetch prices and compute market values for all positions.
+
+        Returns:
+        - prices_data: ticker -> current price (0 if unavailable)
+        - position_values: ticker -> market value (shares * price)
+        - total_value: sum of all market values
+        """
+        prices_data: Dict[str, float] = {}
+        position_values: Dict[str, float] = {}
+        total_value = 0.0
+
+        for ticker, shares in portfolio.items():
+            price = self.price_service.get_current_price(ticker)
+            price = price if price is not None else 0
+            market_value = shares * price
+            prices_data[ticker] = price
+            position_values[ticker] = market_value
+            total_value += market_value
+
+        return prices_data, position_values, total_value
+
+    @staticmethod
+    def dataframe_to_holdings(df: pd.DataFrame) -> List[Dict[str, Any]]:
+        """Convert analyze_portfolio() DataFrame to list of holding dicts."""
+        holdings = []
+        for _, row in df.iterrows():
+            holdings.append({
+                'ticker': row['Ticker'],
+                'shares': row['Shares'],
+                'price': row['Price'],
+                'market_value': row['Market_Value'],
+                'portfolio_percent': row['Portfolio_%'],
+                'momentum_score': row['Momentum_Score'],
+                'rating': row['Rating'],
+                'price_momentum': row['Price_Momentum'],
+                'technical_momentum': row['Technical_Momentum'],
+            })
+        return holdings
 
     def get_category_tickers(self, category_name: str) -> List[str]:
         """Get tickers for a specific category"""
@@ -78,45 +76,24 @@ class PortfolioService:
         - Total portfolio value
         - Average momentum score
         """
-        tickers = list(portfolio.keys())
-        prices_data = {}
-
-        # Get current prices for all positions
-        for ticker in tickers:
-            price = self.price_service.get_current_price(ticker)
-            prices_data[ticker] = price if price is not None else 0
-
-        # Calculate portfolio values
-        portfolio_data = []
-        total_value = 0
-
-        for ticker, shares in portfolio.items():
-            price = prices_data.get(ticker, 0)
-            market_value = shares * price
-            total_value += market_value
-
-            portfolio_data.append({
-                'ticker': ticker,
-                'shares': shares,
-                'price': price,
-                'market_value': market_value
-            })
+        prices_data, position_values, total_value = self._fetch_position_values(portfolio)
 
         # Calculate percentages and get momentum signals
         results = []
 
-        for data in portfolio_data:
-            ticker = data['ticker']
-            percentage = (data['market_value'] / total_value * 100) if total_value > 0 else 0
+        for ticker, shares in portfolio.items():
+            price = prices_data[ticker]
+            market_value = position_values[ticker]
+            percentage = (market_value / total_value * 100) if total_value > 0 else 0
 
             # Get momentum score
             momentum_result = self.momentum_engine.calculate_momentum_score(ticker)
 
             results.append({
                 'Ticker': ticker,
-                'Shares': data['shares'],
-                'Price': f"${data['price']:.2f}",
-                'Market_Value': f"${data['market_value']:,.2f}",
+                'Shares': shares,
+                'Price': f"${price:.2f}",
+                'Market_Value': f"${market_value:,.2f}",
                 'Portfolio_%': f"{percentage:.1f}%",
                 'Momentum_Score': momentum_result['composite_score'],
                 'Rating': momentum_result['rating'],
@@ -128,14 +105,9 @@ class PortfolioService:
         df = pd.DataFrame(results)
         df = df.sort_values('Momentum_Score', ascending=False)
 
-        # Calculate summary statistics
-        total_portfolio_value = sum(data['market_value'] for data in portfolio_data)
         avg_momentum_score = df['Momentum_Score'].mean()
 
-        # Historical tracking is now handled by the daily cache system
-        # No need to record on every portfolio analysis
-
-        return df, total_portfolio_value, avg_momentum_score
+        return df, total_value, avg_momentum_score
 
     def get_category_analysis(self, category_name: str) -> Dict[str, Any]:
         """Analyze a specific portfolio category"""
@@ -239,28 +211,15 @@ class PortfolioService:
 
     def _calculate_current_allocation(self, portfolio: Dict[str, int]) -> Dict[str, float]:
         """Calculate current allocation percentages by category based on dollar values"""
-        # Get current prices for all positions
-        total_portfolio_value = 0
-        position_values = {}
+        _, position_values, total_value = self._fetch_position_values(portfolio)
 
-        for ticker, shares in portfolio.items():
-            current_price = self.price_service.get_current_price(ticker)
-            if current_price is not None:
-                market_value = shares * current_price
-                position_values[ticker] = market_value
-                total_portfolio_value += market_value
-            else:
-                position_values[ticker] = 0
-
-        # Calculate allocation by category based on dollar values
         category_allocation = {}
-
         for category_name, category_info in self.portfolio_categories.items():
             category_value = sum(
                 position_values.get(ticker, 0) for ticker in portfolio.keys()
                 if ticker in category_info['tickers']
             )
-            category_allocation[category_name] = category_value / total_portfolio_value if total_portfolio_value > 0 else 0
+            category_allocation[category_name] = category_value / total_value if total_value > 0 else 0
 
         return category_allocation
 
@@ -274,21 +233,7 @@ class PortfolioService:
         Returns:
         - Dict with categories, holdings grouped by category, and allocation info
         """
-        # Get current prices and calculate values
-        prices_data = {}
-        total_portfolio_value = 0
-        position_values = {}
-
-        for ticker, shares in portfolio.items():
-            price = self.price_service.get_current_price(ticker)
-            if price is not None:
-                market_value = shares * price
-                prices_data[ticker] = price
-                position_values[ticker] = market_value
-                total_portfolio_value += market_value
-            else:
-                prices_data[ticker] = 0
-                position_values[ticker] = 0
+        prices_data, position_values, total_portfolio_value = self._fetch_position_values(portfolio)
 
         # Group holdings by category
         categorized_holdings = {}

@@ -41,22 +41,9 @@ async def analyze_default_portfolio(request: Request):
     try:
         logger.info("Analyzing default portfolio")
         df, total_value, avg_score = portfolio_service.analyze_portfolio(DEFAULT_PORTFOLIO)
-        
-        # Convert DataFrame to list of holdings
-        holdings = []
-        for _, row in df.iterrows():
-            holdings.append(PortfolioHolding(
-                ticker=row['Ticker'],
-                shares=row['Shares'],
-                price=row['Price'],
-                market_value=row['Market_Value'],
-                portfolio_percent=row['Portfolio_%'],
-                momentum_score=row['Momentum_Score'],
-                rating=row['Rating'],
-                price_momentum=row['Price_Momentum'],
-                technical_momentum=row['Technical_Momentum']
-            ))
-        
+
+        holdings = [PortfolioHolding(**h) for h in PortfolioService.dataframe_to_holdings(df)]
+
         return PortfolioAnalysis(
             holdings=holdings,
             total_value=total_value,
@@ -103,22 +90,9 @@ async def analyze_custom_portfolio(request: Request, portfolio: Portfolio):
         
         logger.info(f"Analyzing custom portfolio with {len(portfolio.holdings)} positions")
         df, total_value, avg_score = portfolio_service.analyze_portfolio(portfolio.holdings)
-        
-        # Convert DataFrame to list of holdings
-        holdings = []
-        for _, row in df.iterrows():
-            holdings.append(PortfolioHolding(
-                ticker=row['Ticker'],
-                shares=row['Shares'],
-                price=row['Price'],
-                market_value=row['Market_Value'],
-                portfolio_percent=row['Portfolio_%'],
-                momentum_score=row['Momentum_Score'],
-                rating=row['Rating'],
-                price_momentum=row['Price_Momentum'],
-                technical_momentum=row['Technical_Momentum']
-            ))
-        
+
+        holdings = [PortfolioHolding(**h) for h in PortfolioService.dataframe_to_holdings(df)]
+
         return PortfolioAnalysis(
             holdings=holdings,
             total_value=total_value,

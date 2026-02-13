@@ -95,7 +95,6 @@ omit = [
     "*/venv/*",
     "*/.venv/*",
     # DB-dependent services requiring PostgreSQL — tested via integration tests
-    "backend/services/db_portfolio_service.py",
     "backend/services/user_portfolio_service.py",
     "backend/services/daily_cache_service.py",
     "backend/services/historical_service.py",

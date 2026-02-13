@@ -256,20 +256,7 @@ async def analyze_portfolio(portfolio_data: Optional[str] = None) -> PortfolioAn
 
         df, total_value, avg_score = portfolio_service.analyze_portfolio(portfolio)
 
-        # Convert DataFrame to list of holdings
-        holdings = []
-        for _, row in df.iterrows():
-            holdings.append(PortfolioHolding(
-                ticker=row['Ticker'],
-                shares=row['Shares'],
-                price=row['Price'],
-                market_value=row['Market_Value'],
-                portfolio_percent=row['Portfolio_%'],
-                momentum_score=row['Momentum_Score'],
-                rating=row['Rating'],
-                price_momentum=row['Price_Momentum'],
-                technical_momentum=row['Technical_Momentum']
-            ))
+        holdings = [PortfolioHolding(**h) for h in PortfolioService.dataframe_to_holdings(df)]
 
         return PortfolioAnalysis(
             holdings=holdings,
@@ -292,20 +279,7 @@ async def analyze_custom_portfolio(request: Request, portfolio: Portfolio) -> Po
 
         df, total_value, avg_score = portfolio_service.analyze_portfolio(portfolio.holdings)
 
-        # Convert DataFrame to list of holdings
-        holdings = []
-        for _, row in df.iterrows():
-            holdings.append(PortfolioHolding(
-                ticker=row['Ticker'],
-                shares=row['Shares'],
-                price=row['Price'],
-                market_value=row['Market_Value'],
-                portfolio_percent=row['Portfolio_%'],
-                momentum_score=row['Momentum_Score'],
-                rating=row['Rating'],
-                price_momentum=row['Price_Momentum'],
-                technical_momentum=row['Technical_Momentum']
-            ))
+        holdings = [PortfolioHolding(**h) for h in PortfolioService.dataframe_to_holdings(df)]
 
         return PortfolioAnalysis(
             holdings=holdings,

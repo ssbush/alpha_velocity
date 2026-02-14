@@ -270,16 +270,30 @@ class UserPortfolioService:
         # Get or create security
         security = self._get_or_create_security(ticker)
 
+        # SPLIT-specific validation
+        if transaction_type.upper() == 'SPLIT':
+            if shares <= 0:
+                raise ValueError("Split ratio must be greater than 0")
+            if price_per_share != 0:
+                raise ValueError("Price per share must be 0 for stock splits")
+            # Must have an existing holding to split
+            existing_holding = self.db.query(Holding).join(SecurityMaster).filter(
+                Holding.portfolio_id == portfolio_id,
+                SecurityMaster.ticker == ticker.upper()
+            ).first()
+            if not existing_holding:
+                raise ValueError(f"No existing holding for {ticker} to apply split")
+
         # Calculate total amount
         total_amount = shares * price_per_share + fees
 
-        # Create transaction
+        # Create transaction — store shares as positive for BUY and SPLIT
         transaction = Transaction(
             portfolio_id=portfolio_id,
             security_id=security.id,
             transaction_type=transaction_type.upper(),
             transaction_date=transaction_date,
-            shares=shares if transaction_type.upper() == 'BUY' else -shares,
+            shares=shares if transaction_type.upper() in ['BUY', 'SPLIT'] else -shares,
             price_per_share=price_per_share,
             total_amount=total_amount,
             fees=fees,
@@ -289,7 +303,7 @@ class UserPortfolioService:
         self.db.add(transaction)
 
         # Update holdings based on transaction type
-        if transaction_type.upper() in ['BUY', 'SELL', 'REINVEST']:
+        if transaction_type.upper() in ['BUY', 'SELL', 'REINVEST', 'SPLIT']:
             self._update_holding_from_transaction(portfolio_id, security.id, transaction)
 
         self.db.commit()
@@ -398,6 +412,10 @@ class UserPortfolioService:
             if txn.transaction_type in ['BUY', 'REINVEST']:
                 total_shares += txn.shares
                 total_cost += txn.shares * txn.price_per_share
+            elif txn.transaction_type == 'SPLIT':
+                # Split multiplies shares; total cost stays the same
+                ratio = txn.shares  # stored as positive ratio
+                total_shares = total_shares * ratio
             elif txn.transaction_type == 'SELL':
                 # For sells, shares are already stored as negative
                 shares_sold = abs(txn.shares)
@@ -554,6 +572,14 @@ class UserPortfolioService:
                     total_cost_basis=transaction.shares * transaction.price_per_share
                 )
                 self.db.add(holding)
+
+        elif transaction.transaction_type == 'SPLIT':
+            if holding:
+                ratio = transaction.shares  # stored as positive split ratio
+                total_cost = holding.total_cost_basis
+                holding.shares = holding.shares * ratio
+                holding.average_cost_basis = total_cost / holding.shares if holding.shares > 0 else Decimal('0')
+                holding.total_cost_basis = total_cost  # total investment unchanged
 
         elif transaction.transaction_type == 'SELL':
             if holding:

@@ -72,6 +72,22 @@ class PriceService:
             logger.error("Error fetching info for %s: %s", ticker, e)
             return None
 
+    def get_split_history(self, ticker: str) -> Optional[pd.DataFrame]:
+        """Get stock split history for a ticker.
+
+        Returns:
+            DataFrame with DatetimeIndex and split ratios, or None on error/empty.
+        """
+        try:
+            stock = yf.Ticker(ticker)
+            splits = stock.splits
+            if splits is None or splits.empty:
+                return None
+            return splits
+        except Exception as e:
+            logger.error("Error fetching split history for %s: %s", ticker, e)
+            return None
+
     def download_daily_prices(self, ticker: str, start: str, end: str,
                               interval: str = '1d', auto_adjust: bool = True) -> Optional[pd.DataFrame]:
         """Download price data via yf.download().

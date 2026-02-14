@@ -227,6 +227,33 @@ async def health_check() -> dict:
     """API health check"""
     return {"message": "AlphaVelocity API is running", "version": "1.0.0"}
 
+@app.get("/splits/{ticker}")
+@limiter.limit(RateLimits.PUBLIC_API)
+async def get_split_history(request: Request, response: Response, ticker: str) -> dict:
+    """Get stock split history for a ticker"""
+    from .validators.validators import validate_ticker
+    from .exceptions import InvalidTickerError
+
+    try:
+        ticker = validate_ticker(ticker)
+        splits_df = price_service.get_split_history(ticker)
+
+        if splits_df is None or splits_df.empty:
+            return {"ticker": ticker, "splits": []}
+
+        splits = [
+            {"date": idx.strftime("%Y-%m-%d"), "ratio": float(val)}
+            for idx, val in splits_df.items()
+        ]
+        return {"ticker": ticker, "splits": splits}
+    except (ValueError, InvalidTickerError) as e:
+        raise HTTPException(status_code=400, detail=f"Invalid ticker: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching split history for {ticker}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error fetching split history: {str(e)}")
+
 @app.get("/momentum/{ticker}", response_model=MomentumScore)
 @limiter.limit(RateLimits.PUBLIC_API)
 async def get_momentum_score(request: Request, ticker: str) -> MomentumScore:

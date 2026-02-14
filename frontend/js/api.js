@@ -81,7 +81,7 @@ class AlphaVelocityAPI {
 
     // Get API health status
     async getHealth() {
-        return this.request('/');
+        return this.request('/api/health');
     }
 
     // Get momentum score for a ticker
@@ -271,6 +271,11 @@ class AlphaVelocityAPI {
             sort_order: sortOrder
         });
         return this.request(`/api/v1/user/portfolios/${portfolioId}/transactions?${params}`);
+    }
+
+    // Get split history for a ticker
+    async getSplitHistory(ticker) {
+        return this.request(`/splits/${ticker.toUpperCase()}`);
     }
 
     // Delete transaction (authenticated)

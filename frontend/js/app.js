@@ -413,7 +413,6 @@ class AlphaVelocityApp {
                         <div class="category-header">
                             <h3>${categoryName}</h3>
                             <div class="category-allocation">
-                                <span class="allocation-label">Allocation:</span>
                                 <span class="allocation-actual ${allocationClass}">${actualPercent}%</span>
                                 <span class="allocation-separator">/</span>
                                 <span class="allocation-target">${targetPercent}%</span>
@@ -425,7 +424,6 @@ class AlphaVelocityApp {
                                 <thead>
                                     <tr>
                                         <th>Ticker</th>
-                                        <th>Company</th>
                                         <th>Shares</th>
                                         <th>Avg Cost</th>
                                         <th>Total Cost</th>
@@ -455,7 +453,6 @@ class AlphaVelocityApp {
                                         return `
                                             <tr>
                                                 <td class="ticker-cell">${h.ticker}</td>
-                                                <td>${h.company_name || h.ticker}</td>
                                                 <td>${h.shares.toFixed(2)}</td>
                                                 <td>$${h.average_cost_basis ? h.average_cost_basis.toFixed(2) : '—'}</td>
                                                 <td>$${h.total_cost_basis ? h.total_cost_basis.toFixed(2) : '—'}</td>
@@ -2641,6 +2638,29 @@ class AlphaVelocityApp {
                 });
             }
         });
+
+        // Toggle UI when transaction type changes (SPLIT hides price/fees)
+        const typeSelect = document.getElementById('transaction-type');
+        if (typeSelect) {
+            typeSelect.addEventListener('change', () => this.onTransactionTypeChange());
+        }
+    }
+
+    onTransactionTypeChange() {
+        const type = document.getElementById('transaction-type').value;
+        const sharesLabel = document.querySelector('label[for="transaction-shares"]');
+        const priceGroup = document.getElementById('transaction-price').closest('.form-group');
+        const feesGroup = document.getElementById('transaction-fees').closest('.form-group');
+
+        if (type === 'SPLIT') {
+            if (sharesLabel) sharesLabel.textContent = 'Split Ratio (e.g., 4 for 4:1)';
+            if (priceGroup) priceGroup.style.display = 'none';
+            if (feesGroup) feesGroup.style.display = 'none';
+        } else {
+            if (sharesLabel) sharesLabel.textContent = 'Shares';
+            if (priceGroup) priceGroup.style.display = '';
+            if (feesGroup) feesGroup.style.display = '';
+        }
     }
 
     async addTransaction() {
@@ -2652,6 +2672,8 @@ class AlphaVelocityApp {
         const fees = parseFloat(document.getElementById('transaction-fees').value) || 0;
         const notes = document.getElementById('transaction-notes').value.trim();
 
+        const isSplit = type === 'SPLIT';
+
         // Validation
         if (!ticker) {
             this.showError('Please enter a stock ticker');
@@ -2659,11 +2681,11 @@ class AlphaVelocityApp {
         }
 
         if (!shares || shares <= 0) {
-            this.showError('Please enter a valid number of shares');
+            this.showError(isSplit ? 'Please enter a valid split ratio' : 'Please enter a valid number of shares');
             return;
         }
 
-        if (!price || price <= 0) {
+        if (!isSplit && (!price || price <= 0)) {
             this.showError('Please enter a valid price per share');
             return;
         }
@@ -2677,9 +2699,9 @@ class AlphaVelocityApp {
             ticker: ticker,
             transaction_type: type,
             shares: shares,
-            price_per_share: price,
+            price_per_share: isSplit ? 0 : price,
             transaction_date: date,
-            fees: fees,
+            fees: isSplit ? 0 : fees,
             notes: notes || null
         };
 
@@ -2717,6 +2739,9 @@ class AlphaVelocityApp {
         // Set today's date as default
         const today = new Date().toISOString().split('T')[0];
         document.getElementById('transaction-date').value = today;
+
+        // Reset split UI toggle
+        this.onTransactionTypeChange();
     }
 
     async loadTransactionHistory() {
@@ -2749,8 +2774,8 @@ class AlphaVelocityApp {
                             <div class="transaction-main">
                                 <div class="transaction-ticker">${txn.ticker}</div>
                                 <div class="transaction-type-badge ${txn.transaction_type.toLowerCase()}">${txn.transaction_type}</div>
-                                <div class="transaction-amount">${txn.shares} shares @ $${txn.price_per_share.toFixed(2)}</div>
-                                <div class="transaction-total">$${txn.total_amount.toFixed(2)}</div>
+                                <div class="transaction-amount">${txn.transaction_type === 'SPLIT' ? `${txn.shares}:1 split` : `${txn.shares} shares @ $${txn.price_per_share.toFixed(2)}`}</div>
+                                <div class="transaction-total">${txn.transaction_type === 'SPLIT' ? '-' : `$${txn.total_amount.toFixed(2)}`}</div>
                             </div>
                             <div class="transaction-details">
                                 <span class="transaction-date">${new Date(txn.transaction_date).toLocaleDateString()}</span>

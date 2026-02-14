@@ -311,29 +311,36 @@ body {
     border-radius: 1rem;
     overflow: hidden;
     border: 1px solid rgba(255, 255, 255, 0.2);
-    margin-bottom: 2rem;
+    margin-bottom: 1rem;
 }
 
 .category-section .category-header {
     background: linear-gradient(135deg, #4c1d95, #5b21b6);
     color: white;
-    padding: 0.75rem 1rem;
+    padding: 0.4rem 1rem;
     display: flex;
-    justify-content: space-between;
+    flex-direction: row;
     align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0;
+    padding-bottom: 0.4rem;
+    border-bottom: none;
 }
 
 .category-section .category-header h3 {
     margin: 0;
-    font-size: 1.125rem;
+    font-size: 0.95rem;
     font-weight: 600;
+    white-space: nowrap;
+    color: white;
 }
 
 .category-section .category-allocation {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    font-size: 1rem;
+    gap: 0.35rem;
+    font-size: 0.8rem;
     color: white;
 }
 
@@ -344,7 +351,7 @@ body {
 
 .allocation-actual {
     font-weight: 700;
-    font-size: 1.125rem;
+    font-size: 0.85rem;
 }
 
 .allocation-actual.overweight {
@@ -366,9 +373,9 @@ body {
 }
 
 .allocation-indicator {
-    font-size: 1rem;
+    font-size: 0.75rem;
     font-weight: bold;
-    margin-left: 0.25rem;
+    margin-left: 0.15rem;
 }
 
 .allocation-indicator.overweight {
@@ -396,11 +403,15 @@ body {
 .category-section .holdings-table th {
     color: #374151;
     border-bottom: 2px solid #e5e7eb;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.75rem;
 }
 
 .category-section .holdings-table td {
     color: #1f2937;
     border-bottom: 1px solid #e5e7eb;
+    padding: 0.3rem 0.5rem;
+    font-size: 0.8rem;
 }
 
 .category-section .holdings-table tbody tr:hover {
@@ -409,6 +420,16 @@ body {
 
 .category-section .holdings-table .ticker-cell {
     color: #1f2937;
+    font-size: 0.8rem;
+}
+
+.category-section .holdings-table .momentum-score {
+    font-size: 0.8rem;
+}
+
+.category-section .holdings-table .rating-badge {
+    font-size: 0.65rem;
+    padding: 0.15rem 0.35rem;
 }
 
 .category-table {
@@ -2624,6 +2645,15 @@ body {
 .transaction-type-badge.sell {
     background: #fef2f2;
     color: #dc2626;
+}
+
+.transaction-type-badge.split {
+    background: #f3e8ff;
+    color: #7c3aed;
+}
+
+.transaction-item.split {
+    border-left: 3px solid #7c3aed;
 }
 
 .transaction-amount {

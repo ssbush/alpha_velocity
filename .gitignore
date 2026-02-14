@@ -45,6 +45,10 @@ secrets.json
 *.xlsx
 data/
 
+# Coverage
+.coverage
+htmlcov/
+
 # Logs
 *.log
 logs/

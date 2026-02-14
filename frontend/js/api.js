@@ -256,6 +256,13 @@ class AlphaVelocityAPI {
         });
     }
 
+    // Backfill historical stock splits for a portfolio (authenticated)
+    async backfillSplits(portfolioId) {
+        return this.request(`/user/portfolios/${portfolioId}/backfill-splits`, {
+            method: 'POST'
+        });
+    }
+
     // Get transaction history (authenticated, legacy)
     async getTransactionHistory(portfolioId, limit = 50) {
         return this.request(`/user/portfolios/${portfolioId}/transactions?limit=${limit}`);

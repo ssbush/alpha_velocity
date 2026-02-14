@@ -466,10 +466,12 @@ class UserPortfolioService:
     def get_all_portfolios_with_summaries(self, user_id: int) -> List[Dict[str, Any]]:
         """Get all portfolios for user with brief summaries including current values"""
         from ..services.daily_cache_service import DailyCacheService
+        from .price_service import get_price_service
 
         # Use daily cached prices instead of making live API calls
         cache_service = DailyCacheService()
         cached_prices = cache_service.get_cached_prices()
+        ps = get_price_service()
 
         portfolios = self.get_user_portfolios(user_id)
         summaries = []
@@ -491,10 +493,17 @@ class UserPortfolioService:
                 shares = holding['shares']
                 current_price = cached_prices.get(ticker, 0)
 
+                # If not in daily cache, fetch live price
+                if not current_price:
+                    try:
+                        current_price = ps.get_current_price(ticker) or 0
+                    except Exception:
+                        current_price = 0
+
                 if current_price > 0:
                     total_current_value += current_price * shares
                 else:
-                    # If no cached price, use cost basis as fallback
+                    # If no price available at all, use cost basis as fallback
                     total_current_value += cost_basis
 
             # Calculate return
@@ -517,6 +526,101 @@ class UserPortfolioService:
             })
 
         return summaries
+
+    # ========== Split Backfill ==========
+
+    def backfill_splits(self, portfolio_id: int, user_id: int, price_service) -> Dict[str, list]:
+        """Detect past stock splits via PriceService and create missing SPLIT transactions.
+
+        Args:
+            portfolio_id: The portfolio to backfill.
+            user_id: Owner of the portfolio.
+            price_service: PriceService instance for fetching split history.
+
+        Returns:
+            Dict with keys: applied, skipped, errors.
+        """
+        from sqlalchemy import func
+
+        portfolio = self.get_portfolio(portfolio_id, user_id)
+        if not portfolio:
+            raise ValueError("Portfolio not found")
+
+        # Get all holdings with their tickers
+        holdings = self.db.query(Holding, SecurityMaster).join(
+            SecurityMaster, Holding.security_id == SecurityMaster.id
+        ).filter(Holding.portfolio_id == portfolio_id).all()
+
+        applied = []
+        skipped = []
+        errors = []
+
+        for holding, security in holdings:
+            ticker = security.ticker
+            try:
+                # Find the earliest BUY transaction date for this security in this portfolio
+                earliest_buy = self.db.query(func.min(Transaction.transaction_date)).filter(
+                    Transaction.portfolio_id == portfolio_id,
+                    Transaction.security_id == security.id,
+                    Transaction.transaction_type == 'BUY'
+                ).scalar()
+
+                if not earliest_buy:
+                    skipped.append({'ticker': ticker, 'reason': 'No BUY transactions found'})
+                    continue
+
+                # Get split history from price service
+                splits_df = price_service.get_split_history(ticker)
+                if splits_df is None or splits_df.empty:
+                    skipped.append({'ticker': ticker, 'reason': 'No splits found'})
+                    continue
+
+                # Get existing SPLIT transactions for this security/portfolio
+                existing_splits = self.db.query(Transaction.transaction_date).filter(
+                    Transaction.portfolio_id == portfolio_id,
+                    Transaction.security_id == security.id,
+                    Transaction.transaction_type == 'SPLIT'
+                ).all()
+                existing_split_dates = {row[0] for row in existing_splits}
+
+                # Process splits in chronological order
+                for split_date_idx, ratio in sorted(splits_df.items(), key=lambda x: x[0]):
+                    split_date = split_date_idx.date() if hasattr(split_date_idx, 'date') else split_date_idx
+                    ratio_val = float(ratio)
+
+                    # Skip ratios too close to 1.0 — likely stock dividends, not real splits
+                    if 0.9 < ratio_val < 1.1:
+                        skipped.append({'ticker': ticker, 'date': str(split_date), 'ratio': ratio_val, 'reason': 'Ratio too close to 1.0 (likely dividend)'})
+                        continue
+
+                    # Skip splits before the earliest BUY
+                    if split_date <= earliest_buy:
+                        skipped.append({'ticker': ticker, 'date': str(split_date), 'ratio': ratio_val, 'reason': 'Before first BUY'})
+                        continue
+
+                    # Skip already-recorded splits
+                    if split_date in existing_split_dates:
+                        skipped.append({'ticker': ticker, 'date': str(split_date), 'ratio': ratio_val, 'reason': 'Already recorded'})
+                        continue
+
+                    # Apply the split
+                    self.add_transaction(
+                        portfolio_id=portfolio_id,
+                        user_id=user_id,
+                        ticker=ticker,
+                        transaction_type='SPLIT',
+                        shares=Decimal(str(ratio_val)),
+                        price_per_share=Decimal('0'),
+                        transaction_date=split_date,
+                        notes=f"Auto-backfilled {ratio_val}:1 split"
+                    )
+                    applied.append({'ticker': ticker, 'date': str(split_date), 'ratio': ratio_val})
+
+            except Exception as e:
+                logger.error("Error backfilling splits for %s: %s", ticker, e)
+                errors.append({'ticker': ticker, 'error': str(e)})
+
+        return {'applied': applied, 'skipped': skipped, 'errors': errors}
 
     # ========== Helper Methods ==========
 

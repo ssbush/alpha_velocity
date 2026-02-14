@@ -1720,6 +1720,23 @@ async def delete_transaction_endpoint(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting transaction: {str(e)}")
 
+@app.post("/user/portfolios/{portfolio_id}/backfill-splits")
+async def backfill_splits_endpoint(
+    portfolio_id: int,
+    user_id: int = Depends(get_current_user_id)
+) -> dict:
+    """Detect and apply missing historical stock splits for all holdings in a portfolio."""
+    service = get_user_portfolio_service()
+    try:
+        result = service.backfill_splits(portfolio_id, user_id, price_service)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error backfilling splits: {str(e)}")
+
 # Serve frontend static files (must be last to avoid shadowing API routes)
 app.mount("/", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "..", "frontend"), html=True), name="frontend")
 

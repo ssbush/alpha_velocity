@@ -982,7 +982,13 @@ async def get_cached_momentum(ticker: str) -> dict:
 
 @app.get("/cache/daily/batch")
 async def get_batch_momentum(tickers: str) -> dict:
-    """Get cached momentum scores and prices for multiple tickers in one call"""
+    """Get cached momentum scores and prices for multiple tickers in one call.
+
+    Tries daily cache first, then momentum engine in-memory cache,
+    then computes live scores for any remaining tickers.
+    """
+    import asyncio
+
     try:
         ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
         if not ticker_list:
@@ -994,6 +1000,8 @@ async def get_batch_momentum(tickers: str) -> dict:
         cached_prices = daily_scheduler.cache_service.get_cached_prices()
 
         data = {}
+        missing_tickers = []
+
         for ticker in ticker_list:
             momentum = cached_momentum.get(ticker)
             if momentum:
@@ -1001,7 +1009,7 @@ async def get_batch_momentum(tickers: str) -> dict:
                 entry["current_price"] = cached_prices.get(ticker, 0.0)
                 data[ticker] = entry
             else:
-                # Fall back to momentum engine in-memory cache
+                # Check momentum engine in-memory cache
                 cache_key = f"momentum_{ticker}"
                 if cache_key in momentum_engine._cache:
                     cached_data, cache_time = momentum_engine._cache[cache_key]
@@ -1010,6 +1018,23 @@ async def get_batch_momentum(tickers: str) -> dict:
                         if "current_price" not in entry:
                             entry["current_price"] = cached_prices.get(ticker, 0.0)
                         data[ticker] = entry
+                        continue
+                missing_tickers.append(ticker)
+
+        # Compute live scores for missing tickers in parallel
+        if missing_tickers:
+            async def compute_score(ticker):
+                try:
+                    return ticker, await asyncio.to_thread(
+                        momentum_engine.calculate_momentum_score, ticker
+                    )
+                except Exception:
+                    return ticker, None
+
+            results = await asyncio.gather(*(compute_score(t) for t in missing_tickers))
+            for ticker, result in results:
+                if result:
+                    data[ticker] = result
 
         return {"data": data}
     except HTTPException:

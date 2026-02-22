@@ -79,6 +79,16 @@ class DailyCacheService:
         except (FileNotFoundError, json.JSONDecodeError):
             return False
 
+    def _get_best_date(self, all_dates: Dict, date: str) -> Dict:
+        """Return data for the requested date, or the most recent date if not found."""
+        if date in all_dates:
+            return all_dates[date]
+        # Fall back to the most recent cached date
+        if all_dates:
+            latest = max(all_dates.keys())
+            return all_dates[latest]
+        return {}
+
     def get_cached_prices(self, date: str = None) -> Dict[str, float]:
         """Get cached daily prices for a specific date"""
         if date is None:
@@ -88,7 +98,7 @@ class DailyCacheService:
             with open(self.daily_prices_file, 'r') as f:
                 prices = json.load(f)
 
-            return prices.get(date, {})
+            return self._get_best_date(prices, date)
         except (FileNotFoundError, json.JSONDecodeError):
             return {}
 
@@ -101,7 +111,7 @@ class DailyCacheService:
             with open(self.daily_momentum_file, 'r') as f:
                 momentum = json.load(f)
 
-            return momentum.get(date, {})
+            return self._get_best_date(momentum, date)
         except (FileNotFoundError, json.JSONDecodeError):
             return {}
 

@@ -57,6 +57,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # HTTP Bearer token scheme
 security = HTTPBearer()
+optional_security = HTTPBearer(auto_error=False)
 
 
 class TokenData(BaseModel):
@@ -339,3 +340,17 @@ def get_current_user_id(credentials: HTTPAuthorizationCredentials = Depends(secu
     token = credentials.credentials
     token_data = decode_access_token(token)
     return token_data.user_id
+
+
+def get_optional_user_id(credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security)) -> Optional[int]:
+    """
+    Dependency that returns user_id if authenticated, None otherwise.
+    Does not raise 401 for unauthenticated requests.
+    """
+    if credentials is None:
+        return None
+    try:
+        token_data = decode_access_token(credentials.credentials)
+        return token_data.user_id
+    except Exception:
+        return None

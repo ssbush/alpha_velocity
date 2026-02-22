@@ -435,7 +435,9 @@ class AlphaVelocityApp {
 
             // Sort categories by total value (descending)
             const sortedCategories = Object.keys(holdingsByCategory).sort((a, b) => {
-                return holdingsByCategory[b].totalValue - holdingsByCategory[a].totalValue;
+                const targetA = (categoryMap[a] || { target_allocation: 0 }).target_allocation;
+                const targetB = (categoryMap[b] || { target_allocation: 0 }).target_allocation;
+                return targetB - targetA;
             });
 
             sortedCategories.forEach(categoryName => {

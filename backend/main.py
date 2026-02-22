@@ -19,6 +19,7 @@ from .config.rate_limit_config import (
 from .config.account_lockout_config import login_attempt_tracker, log_lockout_config
 from .config.token_rotation_config import refresh_token_tracker, log_token_rotation_config
 from .config.csrf_config import log_csrf_config
+from .auth import get_optional_user_id
 
 # Setup logging based on environment
 setup_logging(
@@ -415,11 +416,34 @@ async def get_category_tickers(category_name: str) -> dict:
         raise HTTPException(status_code=500, detail=f"Error fetching tickers for {category_name}: {str(e)}")
 
 @app.get("/watchlist")
-async def get_watchlist(min_score: float = 70.0) -> dict:
-    """Generate watchlist of potential portfolio additions"""
+async def get_watchlist(
+    min_score: float = 70.0,
+    user_id: Optional[int] = Depends(get_optional_user_id)
+) -> dict:
+    """Generate watchlist of potential portfolio additions.
+
+    If the user is authenticated, excludes tickers from all of their
+    portfolio holdings. Otherwise falls back to the default model portfolio.
+    """
     try:
-        # Use the default portfolio for analysis
-        watchlist = portfolio_service.generate_watchlist(DEFAULT_PORTFOLIO, min_score)
+        portfolio = DEFAULT_PORTFOLIO
+        if user_id is not None and DATABASE_AVAILABLE:
+            try:
+                service = get_user_portfolio_service()
+                user_portfolios = service.get_user_portfolios(user_id)
+                if user_portfolios:
+                    # Merge holdings across all user portfolios
+                    merged = {}
+                    for p in user_portfolios:
+                        holdings = service.get_portfolio_holdings(p['id'], user_id)
+                        for h in holdings:
+                            ticker = h['ticker']
+                            merged[ticker] = merged.get(ticker, 0) + int(h['shares'])
+                    if merged:
+                        portfolio = merged
+            except Exception as e:
+                logger.warning("Failed to load user holdings for watchlist, using default: %s", e)
+        watchlist = portfolio_service.generate_watchlist(portfolio, min_score)
         return watchlist
     except HTTPException:
         raise
@@ -1264,7 +1288,7 @@ async def reset_portfolio_targets(portfolio_id: int) -> dict:
 from .auth import (
     UserCredentials, UserRegistration, UserProfile, Token, TokenPair,
     create_access_token, create_refresh_token, decode_access_token, decode_refresh_token,
-    get_current_user, get_current_user_id, TokenData
+    get_current_user, get_current_user_id, get_optional_user_id, TokenData
 )
 from .services.user_service import UserService
 from .services.user_portfolio_service import UserPortfolioService

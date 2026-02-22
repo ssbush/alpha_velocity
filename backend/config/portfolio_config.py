@@ -58,6 +58,11 @@ PORTFOLIO_CATEGORIES = {
         'tickers': ['REMX', 'LIT', 'XMET'],
         'target_allocation': 0.05,
         'benchmark': 'XLB'
+    },
+    'AI Power/Energy Infrastructure': {
+        'tickers': ['VST', 'CEG', 'NRG', 'GEV', 'CCJ', 'OKLO', 'SMR', 'TLN'],
+        'target_allocation': 0.08,
+        'benchmark': 'XLU'
     }
 }
 

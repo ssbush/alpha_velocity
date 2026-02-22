@@ -464,39 +464,46 @@ class UserPortfolioService:
         }
 
     def get_all_portfolios_with_summaries(self, user_id: int) -> List[Dict[str, Any]]:
-        """Get all portfolios for user with brief summaries including current values"""
-        from ..services.daily_cache_service import DailyCacheService
+        """Get all portfolios for user with brief summaries including current values.
 
-        # Use daily cached prices only — no live API calls
-        cache_service = DailyCacheService()
-        cached_prices = cache_service.get_cached_prices()
-
+        Uses price_history DB table for latest close prices (fast).
+        Falls back to cost basis when no DB price is available.
+        """
         portfolios = self.get_user_portfolios(user_id)
         summaries = []
 
+        # Collect all tickers across all portfolios, then batch-query DB prices
+        all_holdings_by_portfolio = {}
+        all_tickers = set()
         for portfolio in portfolios:
             holdings = self.get_portfolio_holdings(portfolio.id, user_id)
+            all_holdings_by_portfolio[portfolio.id] = holdings
+            for h in holdings:
+                all_tickers.add(h['ticker'])
+
+        # Query latest close prices from price_history
+        db_prices = self._get_latest_prices_from_db(list(all_tickers))
+
+        for portfolio in portfolios:
+            holdings = all_holdings_by_portfolio[portfolio.id]
 
             total_positions = len(holdings)
             total_cost_basis = 0
             total_current_value = 0
 
-            # Calculate current values using cached prices
             for holding in holdings:
                 cost_basis = holding.get('total_cost_basis') or 0
                 total_cost_basis += cost_basis
 
                 ticker = holding['ticker']
                 shares = holding['shares']
-                current_price = cached_prices.get(ticker, 0)
+                current_price = db_prices.get(ticker, 0)
 
                 if current_price > 0:
-                    total_current_value += current_price * shares
+                    total_current_value += float(current_price) * shares
                 else:
-                    # If no cached price, use cost basis as fallback
                     total_current_value += cost_basis
 
-            # Calculate return
             total_return = 0
             total_return_pct = 0
             if total_cost_basis > 0:
@@ -516,6 +523,42 @@ class UserPortfolioService:
             })
 
         return summaries
+
+    def _get_latest_prices_from_db(self, tickers: List[str]) -> Dict[str, float]:
+        """Query price_history for the most recent close_price per ticker."""
+        if not tickers:
+            return {}
+
+        from sqlalchemy import func as sqlfunc
+        from ..models.database import PriceHistory, SecurityMaster
+
+        try:
+            subq = (
+                self.db.query(
+                    PriceHistory.security_id,
+                    sqlfunc.max(PriceHistory.price_date).label("max_date"),
+                )
+                .join(SecurityMaster, PriceHistory.security_id == SecurityMaster.id)
+                .filter(SecurityMaster.ticker.in_(tickers))
+                .group_by(PriceHistory.security_id)
+                .subquery()
+            )
+
+            rows = (
+                self.db.query(SecurityMaster.ticker, PriceHistory.close_price)
+                .join(PriceHistory, PriceHistory.security_id == SecurityMaster.id)
+                .join(
+                    subq,
+                    (PriceHistory.security_id == subq.c.security_id)
+                    & (PriceHistory.price_date == subq.c.max_date),
+                )
+                .all()
+            )
+
+            return {ticker: float(price) for ticker, price in rows}
+        except Exception:
+            logger.warning("Failed to query DB prices, falling back to cost basis", exc_info=True)
+            return {}
 
     # ========== Split Backfill ==========
 

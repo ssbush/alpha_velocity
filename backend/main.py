@@ -256,7 +256,7 @@ async def get_split_history(request: Request, response: Response, ticker: str) -
 
 @app.get("/momentum/{ticker}", response_model=MomentumScore)
 @limiter.limit(RateLimits.PUBLIC_API)
-async def get_momentum_score(request: Request, ticker: str) -> MomentumScore:
+async def get_momentum_score(request: Request, response: Response, ticker: str) -> MomentumScore:
     """Get momentum score for a specific ticker"""
     from .validators.validators import validate_ticker
 

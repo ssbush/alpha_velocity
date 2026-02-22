@@ -89,6 +89,11 @@ class AlphaVelocityAPI {
         return this.request(`/api/v1/momentum/${ticker.toUpperCase()}`);
     }
 
+    // Get batch momentum scores and prices for multiple tickers
+    async getBatchMomentum(tickers) {
+        return this.request(`/cache/daily/batch?tickers=${tickers.join(',')}`);
+    }
+
     // Get portfolio analysis
     async getPortfolioAnalysis() {
         return this.request('/api/v1/portfolio/analysis');

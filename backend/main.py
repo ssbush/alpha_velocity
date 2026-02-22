@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 import logging
 import os
+import time
 
 # Initialize logging first (before other imports)
 from .config.logging_config import setup_logging
@@ -978,6 +979,43 @@ async def get_cached_momentum(ticker: str) -> dict:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting cached momentum: {str(e)}")
+
+@app.get("/cache/daily/batch")
+async def get_batch_momentum(tickers: str) -> dict:
+    """Get cached momentum scores and prices for multiple tickers in one call"""
+    try:
+        ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+        if not ticker_list:
+            raise HTTPException(status_code=400, detail="No tickers provided")
+        if len(ticker_list) > 100:
+            raise HTTPException(status_code=400, detail="Maximum 100 tickers per request")
+
+        cached_momentum = daily_scheduler.cache_service.get_cached_momentum()
+        cached_prices = daily_scheduler.cache_service.get_cached_prices()
+
+        data = {}
+        for ticker in ticker_list:
+            momentum = cached_momentum.get(ticker)
+            if momentum:
+                entry = dict(momentum)
+                entry["current_price"] = cached_prices.get(ticker, 0.0)
+                data[ticker] = entry
+            else:
+                # Fall back to momentum engine in-memory cache
+                cache_key = f"momentum_{ticker}"
+                if cache_key in momentum_engine._cache:
+                    cached_data, cache_time = momentum_engine._cache[cache_key]
+                    if time.time() - cache_time < momentum_engine._cache_ttl:
+                        entry = dict(cached_data)
+                        if "current_price" not in entry:
+                            entry["current_price"] = cached_prices.get(ticker, 0.0)
+                        data[ticker] = entry
+
+        return {"data": data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting batch momentum: {str(e)}")
 
 # Database Management Endpoints (PostgreSQL)
 

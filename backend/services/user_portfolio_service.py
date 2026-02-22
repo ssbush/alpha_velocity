@@ -466,12 +466,10 @@ class UserPortfolioService:
     def get_all_portfolios_with_summaries(self, user_id: int) -> List[Dict[str, Any]]:
         """Get all portfolios for user with brief summaries including current values"""
         from ..services.daily_cache_service import DailyCacheService
-        from .price_service import get_price_service
 
-        # Use daily cached prices instead of making live API calls
+        # Use daily cached prices only — no live API calls
         cache_service = DailyCacheService()
         cached_prices = cache_service.get_cached_prices()
-        ps = get_price_service()
 
         portfolios = self.get_user_portfolios(user_id)
         summaries = []
@@ -488,22 +486,14 @@ class UserPortfolioService:
                 cost_basis = holding.get('total_cost_basis') or 0
                 total_cost_basis += cost_basis
 
-                # Use cached price from daily cache
                 ticker = holding['ticker']
                 shares = holding['shares']
                 current_price = cached_prices.get(ticker, 0)
 
-                # If not in daily cache, fetch live price
-                if not current_price:
-                    try:
-                        current_price = ps.get_current_price(ticker) or 0
-                    except Exception:
-                        current_price = 0
-
                 if current_price > 0:
                     total_current_value += current_price * shares
                 else:
-                    # If no price available at all, use cost basis as fallback
+                    # If no cached price, use cost basis as fallback
                     total_current_value += cost_basis
 
             # Calculate return

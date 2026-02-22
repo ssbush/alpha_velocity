@@ -227,23 +227,24 @@ class AlphaVelocityApp {
 
     async loadInitialData() {
         try {
-            // Check API health
-            await api.getHealth();
+            // Health + DB check in parallel
+            const [, ] = await Promise.all([
+                api.getHealth(),
+                this.checkDatabaseMode()
+            ]);
 
-            // Check database availability
-            await this.checkDatabaseMode();
-
-            // Load user portfolio dashboard if logged in
-            if (this.authManager && this.authManager.isLoggedIn()) {
-                await this.loadUserPortfolioDashboard();
-            }
-
-            // Load dashboard data
-            await Promise.all([
+            // Load everything in parallel: user portfolio dashboard + default dashboard items
+            const tasks = [
                 this.loadPortfolioSummary(),
                 this.loadTopMomentum(),
                 this.loadTrendChart()
-            ]);
+            ];
+
+            if (this.authManager && this.authManager.isLoggedIn()) {
+                tasks.push(this.loadUserPortfolioDashboard());
+            }
+
+            await Promise.all(tasks);
         } catch (error) {
             this.showError('Failed to connect to API. Please ensure the backend server is running.');
         }
@@ -262,13 +263,17 @@ class AlphaVelocityApp {
             section.style.display = 'block';
             if (defaultSection) defaultSection.style.display = 'none';
 
-            await this.portfolioManager.renderPortfolioDashboard('portfolio-dashboard');
+            // Load portfolio cards and holdings detail in parallel
+            const tasks = [
+                this.portfolioManager.renderPortfolioDashboard('portfolio-dashboard')
+            ];
 
-            // Load selected portfolio holdings if one is selected
             const selectedId = this.portfolioManager.getSelectedPortfolioId();
             if (selectedId) {
-                await this.loadSelectedPortfolioHoldings(selectedId);
+                tasks.push(this.loadSelectedPortfolioHoldings(selectedId));
             }
+
+            await Promise.all(tasks);
         } catch (error) {
             console.error('Error loading user portfolio dashboard:', error);
             if (section) {
@@ -326,21 +331,58 @@ class AlphaVelocityApp {
                 return;
             }
 
-            // Fetch momentum scores and current prices for all holdings
+            // Fetch momentum, watchlist, and category targets in parallel
             const momentumScores = {};
             const currentPrices = {};
-            await Promise.all(holdings.map(async (h) => {
-                try {
-                    const score = await api.getMomentumScore(h.ticker);
-                    momentumScores[h.ticker] = score;
-                    // Extract current price from momentum data
-                    if (score && score.current_price) {
-                        currentPrices[h.ticker] = score.current_price;
+            let watchlistByCategory = {};
+            const categoryMap = {};
+
+            const tickers = holdings.map(h => h.ticker);
+
+            // Fire all three requests in parallel
+            const [batchResult, watchlistData, targetsResponse] = await Promise.all([
+                api.getBatchMomentum(tickers).catch(err => {
+                    console.warn('Batch momentum fetch failed:', err);
+                    return null;
+                }),
+                api.getWatchlist().catch(err => {
+                    console.warn('Failed to fetch watchlist:', err);
+                    return null;
+                }),
+                api.getPortfolioCategoryTargets(portfolioId).catch(err => {
+                    console.warn('Failed to fetch category targets:', err);
+                    return { targets: [] };
+                })
+            ]);
+
+            // Process batch momentum results
+            if (batchResult && batchResult.data) {
+                for (const [ticker, data] of Object.entries(batchResult.data)) {
+                    momentumScores[ticker] = data;
+                    if (data.current_price) {
+                        currentPrices[ticker] = data.current_price;
                     }
-                } catch (error) {
-                    console.warn(`Failed to fetch momentum score for ${h.ticker}:`, error);
                 }
-            }));
+            }
+
+            // Process watchlist results
+            if (watchlistData && watchlistData.categories) {
+                for (const [catName, catData] of Object.entries(watchlistData.categories)) {
+                    if (catData.candidates && catData.candidates.length > 0) {
+                        watchlistByCategory[catName] = catData.candidates;
+                    }
+                }
+            }
+
+            // Process category targets
+            if (targetsResponse && targetsResponse.targets) {
+                targetsResponse.targets.forEach(target => {
+                    categoryMap[target.category_name] = {
+                        target_allocation: target.target_allocation_pct / 100,
+                        benchmark: target.benchmark
+                    };
+                });
+            }
 
             // Helper function to get score color
             const getScoreColor = (score) => {
@@ -362,32 +404,6 @@ class AlphaVelocityApp {
                 };
                 return colors[rating] || '#6b7280';
             };
-
-            // Always fetch watchlist candidates (rendered hidden, toggled via CSS)
-            let watchlistByCategory = {};
-            try {
-                const watchlistData = await api.getWatchlist();
-                if (watchlistData && watchlistData.categories) {
-                    // categories is a dict keyed by category name
-                    for (const [catName, catData] of Object.entries(watchlistData.categories)) {
-                        if (catData.candidates && catData.candidates.length > 0) {
-                            watchlistByCategory[catName] = catData.candidates;
-                        }
-                    }
-                }
-            } catch (err) {
-                console.warn('Failed to fetch watchlist:', err);
-            }
-
-            // Get portfolio-specific category targets
-            const targetsResponse = await api.getPortfolioCategoryTargets(portfolioId);
-            const categoryMap = {};
-            targetsResponse.targets.forEach(target => {
-                categoryMap[target.category_name] = {
-                    target_allocation: target.target_allocation_pct / 100,  // Convert to decimal
-                    benchmark: target.benchmark
-                };
-            });
 
             // Group holdings by category and calculate values (using current prices)
             const holdingsByCategory = {};

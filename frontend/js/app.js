@@ -1344,9 +1344,6 @@ class AlphaVelocityApp {
         // Register service worker
         this.registerServiceWorker();
 
-        // Setup PWA installation
-        this.setupPWAInstallation();
-
         // Setup offline detection
         this.setupOfflineDetection();
 
@@ -1373,75 +1370,6 @@ class AlphaVelocityApp {
             } catch (error) {
                 console.error('[PWA] Service Worker registration failed:', error);
             }
-        }
-    }
-
-    setupPWAInstallation() {
-        let deferredPrompt;
-
-        // Listen for beforeinstallprompt event
-        window.addEventListener('beforeinstallprompt', (e) => {
-            console.log('[PWA] beforeinstallprompt event fired');
-            e.preventDefault();
-            deferredPrompt = e;
-            this.showInstallPrompt(deferredPrompt);
-        });
-
-        // Listen for app installed event
-        window.addEventListener('appinstalled', () => {
-            console.log('[PWA] App was installed');
-            this.hideInstallPrompt();
-            this.showToast('AlphaVelocity installed successfully!');
-        });
-    }
-
-    showInstallPrompt(deferredPrompt) {
-        // Create install button if it doesn't exist
-        if (!document.getElementById('pwa-install-banner')) {
-            const banner = document.createElement('div');
-            banner.id = 'pwa-install-banner';
-            banner.className = 'pwa-install-banner';
-            banner.innerHTML = `
-                <div class="install-content">
-                    <div class="install-icon">⚡</div>
-                    <div class="install-text">
-                        <strong>Install AlphaVelocity</strong>
-                        <span>Get the full app experience with offline access</span>
-                    </div>
-                    <button id="install-button" class="install-button">Install</button>
-                    <button id="dismiss-install" class="dismiss-button">×</button>
-                </div>
-            `;
-
-            document.body.appendChild(banner);
-
-            // Handle install button click
-            document.getElementById('install-button').addEventListener('click', async () => {
-                if (deferredPrompt) {
-                    deferredPrompt.prompt();
-                    const { outcome } = await deferredPrompt.userChoice;
-                    console.log('[PWA] User response to install prompt:', outcome);
-                    deferredPrompt = null;
-                    this.hideInstallPrompt();
-                }
-            });
-
-            // Handle dismiss button
-            document.getElementById('dismiss-install').addEventListener('click', () => {
-                this.hideInstallPrompt();
-            });
-
-            // Auto-hide after 10 seconds
-            setTimeout(() => {
-                this.hideInstallPrompt();
-            }, 10000);
-        }
-    }
-
-    hideInstallPrompt() {
-        const banner = document.getElementById('pwa-install-banner');
-        if (banner) {
-            banner.remove();
         }
     }
 

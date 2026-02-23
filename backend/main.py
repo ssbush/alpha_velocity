@@ -448,7 +448,7 @@ async def get_watchlist(
                     # Merge holdings across all user portfolios
                     merged = {}
                     for p in user_portfolios:
-                        holdings = service.get_portfolio_holdings(p['id'], user_id)
+                        holdings = service.get_portfolio_holdings(p.id, user_id)
                         for h in holdings:
                             ticker = h['ticker']
                             merged[ticker] = merged.get(ticker, 0) + int(h['shares'])

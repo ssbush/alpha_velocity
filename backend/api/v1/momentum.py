@@ -9,6 +9,7 @@ from typing import Optional
 import logging
 
 from ...services.momentum_engine import MomentumEngine
+from ...services.portfolio_service import get_portfolio_service
 from ...models.momentum import MomentumScore
 from ...models.api_responses import TopMomentumResponse
 from ...validators.validators import validate_ticker, validate_limit
@@ -82,10 +83,8 @@ async def get_top_momentum_stocks(
         
         logger.info(f"Getting top {limit} momentum stocks (category: {category})")
         
-        from ...services.portfolio_service import PortfolioService
-        
-        portfolio_service = PortfolioService(momentum_engine)
-        
+        portfolio_service = get_portfolio_service()
+
         if category:
             # Get stocks from specific category
             from ...validators.validators import sanitize_string

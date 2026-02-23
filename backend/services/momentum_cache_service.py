@@ -28,6 +28,23 @@ class MomentumCacheService:
         self.momentum_engine = momentum_engine
         self.db_config = db_config
 
+    def get_scores_from_db(self, tickers: List[str]) -> Tuple[Dict[str, Dict[str, Any]], List[str]]:
+        """Synchronous Tier 1 + Tier 2 only lookup (no yfinance).
+
+        Returns:
+            (found, missing) where found is {ticker: score_dict} and
+            missing is list of tickers not found in either tier.
+        """
+        data: Dict[str, Dict[str, Any]] = {}
+        remaining = self._check_memory_cache(list(tickers), data)
+        if not remaining:
+            return data, []
+
+        if self.db_config is not None:
+            remaining = self._check_database(remaining, data)
+
+        return data, remaining
+
     async def get_batch_scores(self, tickers: List[str]) -> Dict[str, Dict[str, Any]]:
         """Fetch momentum scores for a batch of tickers using 3-tier cache."""
         data: Dict[str, Dict[str, Any]] = {}

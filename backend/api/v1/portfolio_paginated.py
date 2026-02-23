@@ -8,8 +8,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, Query
 from typing import Optional
 import logging
 
-from ...services.momentum_engine import MomentumEngine
-from ...services.portfolio_service import PortfolioService
+from ...services.portfolio_service import PortfolioService, get_portfolio_service
 from ...models.portfolio import Portfolio
 from ...config.rate_limit_config import limiter, RateLimits
 from ...config.portfolio_config import DEFAULT_PORTFOLIO, SORT_COLUMN_MAP
@@ -19,10 +18,6 @@ from .error_responses import STANDARD_ERRORS, VALIDATION_ERRORS
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# Initialize services
-momentum_engine = MomentumEngine()
-portfolio_service = PortfolioService(momentum_engine)
 
 
 @router.get("/analysis/paginated", responses=STANDARD_ERRORS)
@@ -58,7 +53,7 @@ async def analyze_default_portfolio_paginated(
         )
         
         # Analyze portfolio
-        df, total_value, avg_score = portfolio_service.analyze_portfolio(DEFAULT_PORTFOLIO)
+        df, total_value, avg_score = get_portfolio_service().analyze_portfolio(DEFAULT_PORTFOLIO)
         
         sort_column = SORT_COLUMN_MAP.get(sort_by, 'Momentum_Score')
 
@@ -132,7 +127,7 @@ async def analyze_custom_portfolio_paginated(
         )
         
         # Analyze portfolio
-        df, total_value, avg_score = portfolio_service.analyze_portfolio(portfolio.holdings)
+        df, total_value, avg_score = get_portfolio_service().analyze_portfolio(portfolio.holdings)
         
         sort_column = SORT_COLUMN_MAP.get(sort_by, 'Momentum_Score')
 

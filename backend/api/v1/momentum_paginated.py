@@ -8,8 +8,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, Depends, Query
 from typing import Optional
 import logging
 
-from ...services.momentum_engine import MomentumEngine
-from ...services.portfolio_service import PortfolioService
+from ...services.portfolio_service import get_portfolio_service
 from ...validators.validators import sanitize_string
 from ...config.rate_limit_config import limiter, RateLimits
 from ...config.portfolio_config import DEFAULT_PORTFOLIO
@@ -19,10 +18,6 @@ from .error_responses import RESOURCE_ERRORS
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# Initialize services
-momentum_engine = MomentumEngine()
-portfolio_service = PortfolioService(momentum_engine)
 
 
 @router.get("/top", responses=RESOURCE_ERRORS)
@@ -74,7 +69,7 @@ async def get_top_momentum_stocks_paginated(
         if category:
             # Get stocks from specific category
             category = sanitize_string(category, max_length=100)
-            result = portfolio_service.get_categories_analysis(category)
+            result = get_portfolio_service().get_categories_analysis(category)
             
             if 'error' in result:
                 raise HTTPException(status_code=404, detail=result['error'])
@@ -99,7 +94,7 @@ async def get_top_momentum_stocks_paginated(
             }
         else:
             # Get stocks from default portfolio
-            df, total_value, avg_score = portfolio_service.analyze_portfolio(DEFAULT_PORTFOLIO)
+            df, total_value, avg_score = get_portfolio_service().analyze_portfolio(DEFAULT_PORTFOLIO)
             
             # Map sort_by to DataFrame column
             column_map = {

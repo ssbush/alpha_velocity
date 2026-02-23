@@ -36,7 +36,7 @@ validate_environment()
 
 from .services.price_service import PriceService, set_price_service
 from .services.momentum_engine import MomentumEngine
-from .services.portfolio_service import PortfolioService
+from .services.portfolio_service import PortfolioService, set_portfolio_service
 from .services.comparison_service import ComparisonService
 from .services.daily_scheduler import initialize_scheduler, get_scheduler
 from .services.category_service import CategoryService
@@ -191,6 +191,17 @@ try:
 except Exception as e:
     logger.warning(f"Database initialization failed: {e}", exc_info=True)
     DATABASE_AVAILABLE = False
+
+# Wire DB-backed caches into services for fast dashboard responses
+if DATABASE_AVAILABLE:
+    from .services.momentum_cache_service import MomentumCacheService as _MCS
+    _momentum_cache_svc = _MCS(momentum_engine, db_config=db_config)
+    price_service.db_config = db_config
+    portfolio_service.db_config = db_config
+    portfolio_service.momentum_cache_service = _momentum_cache_svc
+
+# Register the fully-wired singleton so v1 modules can use it
+set_portfolio_service(portfolio_service)
 
 # Keep simple_db_service for legacy endpoints
 try:

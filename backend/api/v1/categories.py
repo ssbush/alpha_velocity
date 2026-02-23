@@ -8,8 +8,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from typing import List
 import logging
 
-from ...services.momentum_engine import MomentumEngine
-from ...services.portfolio_service import PortfolioService
+from ...services.portfolio_service import get_portfolio_service
 from ...models.portfolio import CategoryInfo, CategoryAnalysis
 from ...validators.validators import sanitize_string
 from ...config.rate_limit_config import limiter, RateLimits
@@ -18,10 +17,6 @@ from .error_responses import STANDARD_ERRORS, RESOURCE_ERRORS
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# Initialize services
-momentum_engine = MomentumEngine()
-portfolio_service = PortfolioService(momentum_engine)
 
 
 @router.get("", response_model=List[CategoryInfo], responses=STANDARD_ERRORS)
@@ -41,7 +36,7 @@ async def get_categories(request: Request, response: Response):
     """
     try:
         logger.info("Fetching all categories")
-        categories = portfolio_service.get_all_categories()
+        categories = get_portfolio_service().get_all_categories()
         
         result = []
         for name, info in categories.items():
@@ -83,7 +78,7 @@ async def analyze_category(request: Request, response: Response, category_name: 
         category_name = sanitize_string(category_name, max_length=100)
         
         logger.info(f"Analyzing category: {category_name}")
-        result = portfolio_service.get_categories_analysis(category_name)
+        result = get_portfolio_service().get_categories_analysis(category_name)
         
         if 'error' in result:
             raise HTTPException(status_code=404, detail=result['error'])
@@ -120,7 +115,7 @@ async def get_category_tickers(request: Request, response: Response, category_na
         category_name = sanitize_string(category_name, max_length=100)
         
         logger.info(f"Fetching tickers for category: {category_name}")
-        categories = portfolio_service.get_all_categories()
+        categories = get_portfolio_service().get_all_categories()
         
         if category_name not in categories:
             raise HTTPException(

@@ -8,8 +8,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from typing import Optional, List
 import logging
 
-from ...services.momentum_engine import MomentumEngine
-from ...services.portfolio_service import PortfolioService
+from ...services.portfolio_service import PortfolioService, get_portfolio_service
 from ...models.portfolio import Portfolio, PortfolioAnalysis, PortfolioHolding
 from ...config.rate_limit_config import limiter, RateLimits
 from ...config.portfolio_config import DEFAULT_PORTFOLIO
@@ -18,10 +17,6 @@ from .error_responses import STANDARD_ERRORS, VALIDATION_ERRORS
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# Initialize services
-momentum_engine = MomentumEngine()
-portfolio_service = PortfolioService(momentum_engine)
 
 
 @router.get("/analysis", response_model=PortfolioAnalysis, responses=STANDARD_ERRORS)
@@ -40,7 +35,7 @@ async def analyze_default_portfolio(request: Request, response: Response):
     """
     try:
         logger.info("Analyzing default portfolio")
-        df, total_value, avg_score = portfolio_service.analyze_portfolio(DEFAULT_PORTFOLIO)
+        df, total_value, avg_score = get_portfolio_service().analyze_portfolio(DEFAULT_PORTFOLIO)
 
         holdings = [PortfolioHolding(**h) for h in PortfolioService.dataframe_to_holdings(df)]
 
@@ -89,7 +84,7 @@ async def analyze_custom_portfolio(request: Request, response: Response, portfol
             raise HTTPException(status_code=400, detail="Portfolio cannot be empty")
         
         logger.info(f"Analyzing custom portfolio with {len(portfolio.holdings)} positions")
-        df, total_value, avg_score = portfolio_service.analyze_portfolio(portfolio.holdings)
+        df, total_value, avg_score = get_portfolio_service().analyze_portfolio(portfolio.holdings)
 
         holdings = [PortfolioHolding(**h) for h in PortfolioService.dataframe_to_holdings(df)]
 
@@ -126,7 +121,7 @@ async def analyze_portfolio_by_categories(request: Request, response: Response):
     """
     try:
         logger.info("Analyzing portfolio by categories")
-        result = portfolio_service.get_portfolio_by_categories(DEFAULT_PORTFOLIO)
+        result = get_portfolio_service().get_portfolio_by_categories(DEFAULT_PORTFOLIO)
         
         return result
         
@@ -157,7 +152,7 @@ async def analyze_custom_portfolio_by_categories(request: Request, response: Res
             raise HTTPException(status_code=400, detail="Portfolio cannot be empty")
         
         logger.info(f"Analyzing custom portfolio by categories ({len(portfolio.holdings)} positions)")
-        result = portfolio_service.get_portfolio_by_categories(portfolio.holdings)
+        result = get_portfolio_service().get_portfolio_by_categories(portfolio.holdings)
         
         return result
         

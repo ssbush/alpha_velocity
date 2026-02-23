@@ -136,19 +136,8 @@ class UserPortfolioService:
             else:
                 category_name = ticker_to_category.get(holding.security.ticker)
 
-            # If still no category, try to get sector from price service as fallback
             if not category_name:
-                try:
-                    from .price_service import get_price_service
-                    info = get_price_service().get_stock_info(holding.security.ticker)
-                    sector = info.get('sector') if info else None
-                    if sector:
-                        category_name = f"{sector}"
-                    else:
-                        category_name = "Other Holdings"
-                except Exception as e:
-                    logger.warning("Could not fetch sector for %s: %s", holding.security.ticker, e)
-                    category_name = "Other Holdings"
+                category_name = "Other Holdings"
 
             result.append({
                 'id': holding.id,

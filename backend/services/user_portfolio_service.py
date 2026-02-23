@@ -452,16 +452,17 @@ class UserPortfolioService:
             'holdings': holdings
         }
 
-    def get_all_portfolios_with_summaries(self, user_id: int) -> List[Dict[str, Any]]:
+    def get_all_portfolios_with_summaries(self, user_id: int, price_service=None) -> List[Dict[str, Any]]:
         """Get all portfolios for user with brief summaries including current values.
 
-        Uses price_history DB table for latest close prices (fast).
-        Falls back to cost basis when no DB price is available.
+        Uses price_service for fresh prices (DB-first with yfinance fallback).
+        Falls back to the DB-only query when price_service is not provided,
+        and to cost basis when no price is available at all.
         """
         portfolios = self.get_user_portfolios(user_id)
         summaries = []
 
-        # Collect all tickers across all portfolios, then batch-query DB prices
+        # Collect all tickers across all portfolios
         all_holdings_by_portfolio = {}
         all_tickers = set()
         for portfolio in portfolios:
@@ -470,8 +471,11 @@ class UserPortfolioService:
             for h in holdings:
                 all_tickers.add(h['ticker'])
 
-        # Query latest close prices from price_history
-        db_prices = self._get_latest_prices_from_db(list(all_tickers))
+        # Fetch current prices — prefer price_service (fresh) over raw DB query
+        if price_service is not None and all_tickers:
+            current_prices = price_service.get_current_prices(list(all_tickers))
+        else:
+            current_prices = self._get_latest_prices_from_db(list(all_tickers))
 
         for portfolio in portfolios:
             holdings = all_holdings_by_portfolio[portfolio.id]
@@ -486,7 +490,7 @@ class UserPortfolioService:
 
                 ticker = holding['ticker']
                 shares = holding['shares']
-                current_price = db_prices.get(ticker, 0)
+                current_price = current_prices.get(ticker) or 0
 
                 if current_price > 0:
                     total_current_value += float(current_price) * shares

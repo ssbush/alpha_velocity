@@ -34,7 +34,6 @@
                 </div>
                 <nav class="nav">
                     <button class="nav-btn active" data-view="dashboard">Dashboard</button>
-                    <button class="nav-btn" data-view="portfolio">Portfolio</button>
                     <button class="nav-btn" data-view="portfolio-builder">Builder</button>
                     <button class="nav-btn" data-view="categories">Categories</button>
                     <button class="nav-btn" data-view="watchlist">Watchlist</button>
@@ -110,82 +109,6 @@
                             </div>
                         </div>
                     </div>
-                </div>
-
-                <!-- Portfolio View -->
-                <div id="portfolio-view" class="view">
-                    <div class="view-header">
-                        <h2>Portfolio Analysis</h2>
-                        <div class="portfolio-controls">
-                            <button class="toggle-btn" id="toggle-portfolio-mode">Use Custom Portfolio</button>
-                            <button class="refresh-btn" id="refresh-portfolio">Refresh</button>
-                        </div>
-                    </div>
-
-                    <!-- Portfolio Mode Selector -->
-                    <div class="portfolio-mode-selector">
-                        <div class="mode-tabs">
-                            <button class="mode-tab active" data-mode="default">Model Portfolio</button>
-                            <button class="mode-tab" data-mode="custom">Custom Portfolio</button>
-                        </div>
-                    </div>
-
-                    <!-- Custom Portfolio Input -->
-                    <div class="custom-portfolio-input" id="custom-portfolio-input" style="display: none;">
-                        <div class="input-section">
-                            <h3>Enter Your Holdings</h3>
-                            <div class="portfolio-builder">
-                                <div class="add-holding">
-                                    <input type="text" id="ticker-input-portfolio" placeholder="Ticker (e.g., AAPL)" maxlength="10">
-                                    <input type="number" id="shares-input" placeholder="Shares" min="1" step="1">
-                                    <button id="add-holding-btn">Add</button>
-                                </div>
-                                <div class="holdings-list" id="holdings-list"></div>
-                                <div class="portfolio-actions">
-                                    <button id="clear-portfolio">Clear All</button>
-                                    <button id="load-sample">Load Sample</button>
-                                    <button id="analyze-custom">Analyze Portfolio</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="loading" id="portfolio-loading">Loading portfolio...</div>
-
-                    <!-- Portfolio Charts Section -->
-                    <div class="portfolio-charts" id="portfolio-charts" style="display: none;">
-                        <div class="charts-grid">
-                            <div class="chart-section">
-                                <h3>Portfolio Allocation</h3>
-                                <div class="chart-container">
-                                    <canvas id="allocation-chart"></canvas>
-                                </div>
-                            </div>
-                            <div class="chart-section">
-                                <h3>Top Holdings by Momentum</h3>
-                                <div class="chart-container">
-                                    <canvas id="momentum-chart"></canvas>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Performance Analytics Section -->
-                    <div class="performance-analytics" id="performance-analytics" style="display: none;">
-                        <div class="analytics-header">
-                            <h3>Performance Analytics</h3>
-                            <div class="analytics-period">
-                                <select id="analytics-period">
-                                    <option value="7">7 Days</option>
-                                    <option value="30" selected>30 Days</option>
-                                    <option value="90">90 Days</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="analytics-grid" id="analytics-grid"></div>
-                    </div>
-
-                    <div class="portfolio-table" id="portfolio-table"></div>
                 </div>
 
                 <!-- Portfolio Builder View -->

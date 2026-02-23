@@ -4,6 +4,7 @@ Centralizes all price fetching logic through a single service layer.
 """
 
 import logging
+from datetime import date, timedelta
 from typing import Dict, List, Optional, Tuple, Any
 
 import pandas as pd
@@ -35,7 +36,8 @@ class PriceService:
     def get_current_price(self, ticker: str) -> Optional[float]:
         """Get the most recent closing price for a single ticker.
 
-        Checks DB first (if available), falls back to yfinance.
+        Checks DB for a recent price first, falls back to yfinance
+        and persists the result.
         """
         if self.db_config is not None:
             db_prices = self._query_db_prices([ticker])
@@ -45,7 +47,9 @@ class PriceService:
         try:
             hist, _ = self.data_provider.get_stock_data(ticker, '1d')
             if hist is not None and not hist.empty:
-                return float(hist['Close'].iloc[-1])
+                price = float(hist['Close'].iloc[-1])
+                self._persist_prices_to_db({ticker: price})
+                return price
             return None
         except Exception as e:
             logger.error("Error fetching current price for %s: %s", ticker, e)
@@ -54,11 +58,12 @@ class PriceService:
     def get_current_prices(self, tickers: List[str]) -> Dict[str, Optional[float]]:
         """Get most recent closing prices for multiple tickers.
 
-        Batch-queries DB first, then fetches remaining from yfinance.
+        Batch-queries DB for recent prices, fetches stale/missing from
+        yfinance, and persists freshly fetched prices back to the DB.
         """
         prices: Dict[str, Optional[float]] = {}
 
-        # Batch DB lookup
+        # Batch DB lookup (only returns prices from last 4 days)
         db_prices = self._query_db_prices(tickers)
         remaining = []
         for ticker in tickers:
@@ -67,30 +72,43 @@ class PriceService:
             else:
                 remaining.append(ticker)
 
-        # yfinance fallback for missing tickers
+        if not remaining:
+            return prices
+
+        # yfinance fallback for stale/missing tickers
+        fetched: Dict[str, float] = {}
         for ticker in remaining:
             try:
                 hist, _ = self.data_provider.get_stock_data(ticker, '1d')
                 if hist is not None and not hist.empty:
-                    prices[ticker] = float(hist['Close'].iloc[-1])
+                    price = float(hist['Close'].iloc[-1])
+                    prices[ticker] = price
+                    fetched[ticker] = price
                 else:
                     prices[ticker] = None
             except Exception as e:
                 logger.error("Error fetching current price for %s: %s", ticker, e)
                 prices[ticker] = None
 
+        # Persist freshly fetched prices so next request is fast
+        if fetched:
+            self._persist_prices_to_db(fetched)
+
         return prices
 
     def _query_db_prices(self, tickers: List[str]) -> Dict[str, float]:
-        """Batch-fetch latest close prices from price_history DB table.
+        """Batch-fetch recent close prices from price_history DB table.
 
-        Returns dict of ticker -> price for tickers found in DB.
-        Tickers not in DB are simply omitted from the result.
+        Only returns prices from the last 4 calendar days (covers weekends
+        and most holidays). Older prices are treated as stale so callers
+        fall back to yfinance.
         """
         if not tickers or self.db_config is None:
             return {}
 
         from ..models.database import PriceHistory, SecurityMaster
+
+        cutoff = date.today() - timedelta(days=4)
 
         try:
             with self.db_config.get_session_context() as session:
@@ -100,7 +118,10 @@ class PriceService:
                         func.max(PriceHistory.price_date).label("max_date"),
                     )
                     .join(SecurityMaster, PriceHistory.security_id == SecurityMaster.id)
-                    .filter(SecurityMaster.ticker.in_(tickers))
+                    .filter(
+                        SecurityMaster.ticker.in_(tickers),
+                        PriceHistory.price_date >= cutoff,
+                    )
                     .group_by(PriceHistory.security_id)
                     .subquery()
                 )
@@ -120,6 +141,50 @@ class PriceService:
         except Exception:
             logger.warning("Failed to batch-query DB prices", exc_info=True)
             return {}
+
+    def _persist_prices_to_db(self, prices: Dict[str, float]) -> None:
+        """Write freshly fetched prices to the price_history DB table."""
+        if not prices or self.db_config is None:
+            return
+
+        from ..models.database import PriceHistory, SecurityMaster
+
+        today = date.today()
+
+        try:
+            with self.db_config.get_session_context() as session:
+                existing = (
+                    session.query(SecurityMaster)
+                    .filter(SecurityMaster.ticker.in_(list(prices.keys())))
+                    .all()
+                )
+                sec_map = {s.ticker: s for s in existing}
+
+                for ticker, price in prices.items():
+                    security = sec_map.get(ticker)
+                    if security is None:
+                        security = SecurityMaster(
+                            ticker=ticker, security_type="STOCK", is_active=True
+                        )
+                        session.add(security)
+                        session.flush()
+                        sec_map[ticker] = security
+
+                    existing_price = (
+                        session.query(PriceHistory)
+                        .filter_by(security_id=security.id, price_date=today)
+                        .first()
+                    )
+                    if existing_price:
+                        existing_price.close_price = price
+                    else:
+                        session.add(PriceHistory(
+                            security_id=security.id,
+                            price_date=today,
+                            close_price=price,
+                        ))
+        except Exception:
+            logger.warning("Failed to persist prices to DB", exc_info=True)
 
     def get_history_by_date_range(self, ticker: str, start: str, end: str) -> Optional[pd.DataFrame]:
         """Fetch historical data for a date range.

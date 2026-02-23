@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
+import asyncio
 import logging
 import os
 import time
@@ -1094,10 +1095,23 @@ async def get_user_portfolios(user_id: int = 1) -> dict:
 
 @app.get("/database/portfolio/{portfolio_id}/holdings")
 async def get_portfolio_holdings_db(portfolio_id: int) -> dict:
-    """Get portfolio holdings from database"""
+    """Get portfolio holdings from database, enriched with current market prices."""
     service = get_db_service()
     try:
         holdings = service.get_portfolio_holdings(portfolio_id)
+
+        # Enrich with current prices so the frontend can compute accurate total value
+        if holdings:
+            tickers = [h["ticker"] for h in holdings]
+            current_prices = await asyncio.to_thread(price_service.get_current_prices, tickers)
+            for holding in holdings:
+                cp = current_prices.get(holding["ticker"])
+                holding["current_price"] = cp
+                if cp is not None and holding.get("shares") is not None:
+                    holding["current_value"] = round(cp * holding["shares"], 2)
+                else:
+                    holding["current_value"] = None
+
         return {
             "portfolio_id": portfolio_id,
             "holdings": holdings,
@@ -1533,7 +1547,9 @@ async def get_user_portfolios_with_summaries(user_id: int = Depends(get_current_
     """Get all portfolios with brief summaries (value, positions, returns)"""
     service = get_user_portfolio_service()
     try:
-        summaries = service.get_all_portfolios_with_summaries(user_id)
+        summaries = await asyncio.to_thread(
+            service.get_all_portfolios_with_summaries, user_id, price_service
+        )
         return {
             "portfolios": summaries
         }

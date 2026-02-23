@@ -1,6 +1,6 @@
 # Alpha Velocity - TODO List
 
-**Last Updated**: 2026-02-09
+**Last Updated**: 2026-02-22
 **Status**: Active Development
 
 ---
@@ -43,6 +43,8 @@
 - [x] Main.py endpoint tests — legacy routes (31 tests) *(2026-02-09)*
 - [x] API v1 endpoint tests — cache, metrics, categories, batch (24 tests) *(2026-02-09)*
 - [x] Coverage at 70.50% — `--cov-fail-under=70` passes (473 tests, 0 skipped) *(2026-02-09)*
+- [x] 3-tier momentum cache service tests (41 tests, 100% coverage on service) *(2026-02-22)*
+- [x] 777 tests passing, coverage 74.08% *(2026-02-22)*
 - [ ] Add database model and relationship tests (requires PostgreSQL integration tests)
 
 ### 3. Security Hardening
@@ -157,6 +159,15 @@
 
 ---
 
+## Performance
+
+- [x] 3-tier momentum cache: in-memory → PostgreSQL → yfinance *(2026-02-22)*
+- [x] PriceService DB-first: `get_current_price()` checks `price_history` before yfinance *(2026-02-22)*
+- [x] PortfolioService singleton with DB-backed batch lookups for prices and scores *(2026-02-22)*
+- [x] All v1 API modules use shared `get_portfolio_service()` singleton *(2026-02-22)*
+- [x] Remove yfinance sector fallback from `UserPortfolioService.get_portfolio_holdings()` *(2026-02-22)*
+- [x] Dashboard endpoints <100ms on warm cache (down from 2-5s) *(2026-02-22)*
+
 ## Code Quality
 
 - [x] Extract hardcoded `DEFAULT_PORTFOLIO` to `backend/config/portfolio_config.py` *(2026-02-12)*
@@ -175,4 +186,4 @@
 | Medium   | 4/6  | 6     | 67%      |
 | Low      | 1/5  | 5     | 20%      |
 
-**Next up**: Deploy and test with Redis, verify CI workflow, audit error handling consistency.
+**Next up**: Deploy and test with Redis, verify CI workflow, set up staging environment.

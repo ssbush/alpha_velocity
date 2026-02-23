@@ -40,7 +40,7 @@ PORTFOLIO_CATEGORIES = {
         'benchmark': 'VEA'
     },
     'Tactical Fixed Income': {
-        'tickers': ['SHY', 'VCIT', 'IPE'],
+        'tickers': ['SHY', 'VCIT', 'TIP', 'IEF', 'BIL', 'LQD', 'FLOT'],
         'target_allocation': 0.08,
         'benchmark': 'AGG'
     },
@@ -55,7 +55,7 @@ PORTFOLIO_CATEGORIES = {
         'benchmark': 'XLB'
     },
     'Specialized Materials ETFs': {
-        'tickers': ['REMX', 'LIT', 'XMET'],
+        'tickers': ['REMX', 'LIT'],
         'target_allocation': 0.05,
         'benchmark': 'XLB'
     },

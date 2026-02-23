@@ -128,6 +128,65 @@ class MomentumEngine:
         technical_score = (rsi_score * 0.4) + (volume_score * 0.3) + (roc_score * 0.3)
         return min(100, max(0, technical_score))
 
+    # ------------------------------------------------------------------ #
+    # Fixed income helpers                                                  #
+    # ------------------------------------------------------------------ #
+
+    _FIXED_INCOME_KEYWORDS = frozenset([
+        'bond', 'treasury', 'fixed income', 'government', 'corporate bond',
+        'inflation', 'tips', 'ultrashort', 'floating rate', 'bank loan',
+        'mortgage', 'muni', 'municipal', 'intermediate core', 'short-term bond',
+        'long-term bond', 'high yield bond', 'income', 'aggregate bond',
+    ])
+
+    def _is_fixed_income(self, stock_info: Dict[str, Any]) -> bool:
+        """Return True when yfinance identifies the security as a bond/fixed-income ETF.
+
+        Checks the category field first (most reliable), then falls back to
+        longName/shortName for ETFs whose category yfinance returns as None.
+        """
+        for field in ('category', 'longName', 'shortName'):
+            text = (stock_info.get(field) or '').lower()
+            if text and any(kw in text for kw in self._FIXED_INCOME_KEYWORDS):
+                return True
+        return False
+
+    def calculate_fixed_income_fundamental(
+        self, stock_info: Dict[str, Any], hist_data: pd.DataFrame
+    ) -> float:
+        """Fundamental score for bond ETFs (replaces P/E scoring).
+
+        Two equal components:
+        - Yield score (0-50 pts): higher distribution/SEC yield is better.
+          Maps 0 % → 0 pts, 6 %+ → 50 pts linearly.
+        - Trend vs AGG (0-50 pts): 30-day outperformance of the broad bond
+          benchmark. ±2 % maps to ±25 pts around a neutral 25 pts.
+        """
+        try:
+            # --- Yield component ---
+            raw_yield = stock_info.get('yield') or stock_info.get('dividendYield') or 0
+            yield_pts = min(50.0, float(raw_yield) * 833.0)  # 6 % = 50 pts
+
+            # --- Trend vs AGG component ---
+            trend_pts = 25.0  # neutral default
+            if hist_data is not None and len(hist_data) >= 21:
+                try:
+                    agg_data, _ = self.get_stock_data('AGG', '1y')
+                    if agg_data is not None and len(agg_data) >= 21:
+                        ticker_30d = (hist_data['Close'].iloc[-1] /
+                                      hist_data['Close'].iloc[-21]) - 1
+                        agg_30d = (agg_data['Close'].iloc[-1] /
+                                   agg_data['Close'].iloc[-21]) - 1
+                        rel = ticker_30d - agg_30d
+                        # ±2 % outperformance maps to ±25 pts around 25
+                        trend_pts = max(0.0, min(50.0, 25.0 + rel * 1250.0))
+                except Exception:
+                    pass
+
+            return min(100.0, yield_pts + trend_pts)
+        except Exception:
+            return 50.0
+
     def calculate_fundamental_momentum(self, stock_info: Dict[str, Any]) -> float:
         """Calculate fundamental momentum component (25% of total score)"""
         try:
@@ -324,10 +383,16 @@ class MomentumEngine:
             return result
 
         # Calculate individual components
+        # Fixed income ETFs use yield+trend scoring and AGG as benchmark
+        is_fi = self._is_fixed_income(stock_info or {})
         price_momentum = self.calculate_price_momentum(hist_data)
         technical_momentum = self.calculate_technical_momentum(hist_data)
-        fundamental_momentum = self.calculate_fundamental_momentum(stock_info or {})
-        relative_momentum = self.calculate_relative_momentum(ticker, hist_data)
+        if is_fi:
+            fundamental_momentum = self.calculate_fixed_income_fundamental(stock_info or {}, hist_data)
+            relative_momentum = self.calculate_relative_momentum(ticker, hist_data, benchmark='AGG')
+        else:
+            fundamental_momentum = self.calculate_fundamental_momentum(stock_info or {})
+            relative_momentum = self.calculate_relative_momentum(ticker, hist_data)
 
         # Calculate weighted composite score
         composite_score = (
@@ -360,7 +425,8 @@ class MomentumEngine:
             'technical_momentum': round(technical_momentum, 1),
             'fundamental_momentum': round(fundamental_momentum, 1),
             'relative_momentum': round(relative_momentum, 1),
-            'current_price': current_price
+            'current_price': current_price,
+            'scoring_model': 'fixed_income' if is_fi else 'equity',
         }
 
         # Cache the result

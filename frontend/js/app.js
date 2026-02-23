@@ -303,7 +303,7 @@ class AlphaVelocityApp {
                     console.warn('Batch momentum fetch failed:', err);
                     return null;
                 }),
-                api.getWatchlist().catch(err => {
+                api.getWatchlist(0).catch(err => {
                     console.warn('Failed to fetch watchlist:', err);
                     return null;
                 }),

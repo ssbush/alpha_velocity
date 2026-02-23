@@ -178,6 +178,55 @@
 
 ---
 
+## Rotation Signal Engine (Future)
+
+A systematic rebalancing alert system — more complex than current scoring, warrants careful design before implementation.
+
+### Core Ideas
+
+**Score gap threshold:**
+- Trigger rotation signal when a category peer scores 15+ points above a held ticker
+- Higher bar (20 pts) for taxable accounts or cross-category moves
+- Fixed income category uses lower threshold (~10 pts) due to score stability
+- Asset-class-specific thresholds stored in `PORTFOLIO_CATEGORIES` config
+
+**Persistence filter (critical to avoid noise):**
+- A single-week gap can be randomness; require the gap to exceed threshold for 2–3 consecutive scoring periods before surfacing as a signal
+- This requires storing a short rolling history of scores per ticker (not just latest)
+- Implies a `score_history` table or enriched `momentum_scores` table with weekly snapshots
+
+**Momentum of momentum (second derivative):**
+- The first derivative of the score curve (week-over-week score change) is a leading indicator of decay
+- A held ticker with score 78 but declining -4/week is weaker than a held ticker at 72 and flat
+- Actionable signals: "score peak passed" (was 85, now 78, -7 over 3 weeks) vs "score rising" (was 65, now 72, +7)
+- Would require computing rolling slope of score history (linear regression over N weeks, or simple delta)
+- The *rate of change of score* may matter more than the absolute score for sell decisions
+
+**Relationship complexity:**
+- N held tickers × M category peers = many pairwise comparisons per category
+- Need to surface only the *most actionable* signals, not flood the UI
+- Priority ranking: (score gap × score trend direction of incumbent) could produce a single "urgency" metric per category
+
+### What Needs to Be Built
+
+1. **Score history snapshots** — weekly job writing current scores to a `score_snapshots` table (ticker, date, score)
+2. **Score delta computation** — rolling N-week slope per ticker, stored or computed on demand
+3. **Gap + persistence tracking** — per-category query: find pairs where (candidate_score - held_score) >= threshold for K consecutive weeks
+4. **Signal surface** — new dashboard section or indicator on existing holdings cards showing:
+   - "Rotation candidate available" badge on a category
+   - Incumbent score trend arrow (↑ ↓ →)
+   - Top replacement candidate with gap magnitude
+5. **Threshold configuration** — per-category thresholds in `PORTFOLIO_CATEGORIES` or a separate config
+
+### Open Questions
+
+- How many weeks of score history is meaningful? (6–12 weeks likely sufficient)
+- Should the signal trigger on the held ticker's decay, the candidate's rise, or both?
+- How to handle cases where all candidates in a category are declining (sector rotation out)?
+- UI treatment: badge/alert vs. dedicated "Signals" view?
+
+---
+
 ## Progress Summary
 
 | Priority | Done | Total | Progress |

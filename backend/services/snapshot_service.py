@@ -131,12 +131,13 @@ class SnapshotService:
 
     def record_daily_snapshot(self, portfolio_id: int, snap_date: Optional[date] = None) -> bool:
         """
-        Write (or overwrite) today's snapshot for a single portfolio.
-        Called by the daily scheduler after prices are written.
+        Write today's snapshot using current holdings (shares already maintained
+        by the DB) × most recent price_history close.  No transaction replay needed.
         """
         from ..models.database import (
-            Transaction, PriceHistory, PerformanceSnapshot, Portfolio,
+            Holding, PriceHistory, PerformanceSnapshot, Portfolio,
         )
+        from sqlalchemy import func
 
         snap_date = snap_date or date.today()
 
@@ -145,37 +146,34 @@ class SnapshotService:
             if not portfolio or not portfolio.is_active:
                 return False
 
-            transactions = (
-                session.query(Transaction)
-                .filter(Transaction.portfolio_id == portfolio_id)
-                .order_by(Transaction.transaction_date, Transaction.id)
+            holdings = (
+                session.query(Holding)
+                .filter(Holding.portfolio_id == portfolio_id)
                 .all()
             )
-            if not transactions:
+            if not holdings:
                 return False
 
-            security_ids = list({t.security_id for t in transactions})
+            total_value = 0.0
+            total_cost = 0.0
+            n_positions = 0
 
-            all_prices = (
-                session.query(
-                    PriceHistory.security_id,
-                    PriceHistory.price_date,
-                    PriceHistory.close_price,
+            for holding in holdings:
+                # Most recent price on or before snap_date
+                price_row = (
+                    session.query(PriceHistory.close_price)
+                    .filter(
+                        PriceHistory.security_id == holding.security_id,
+                        PriceHistory.price_date <= snap_date,
+                    )
+                    .order_by(PriceHistory.price_date.desc())
+                    .first()
                 )
-                .filter(PriceHistory.security_id.in_(security_ids))
-                .order_by(PriceHistory.security_id, PriceHistory.price_date)
-                .all()
-            )
-            prices_by_security: Dict[int, List[Tuple]] = {}
-            for row in all_prices:
-                prices_by_security.setdefault(row.security_id, []).append(
-                    (row.price_date, float(row.close_price))
-                )
-
-            shares_map, cost_map = self._shares_at_date(transactions, snap_date)
-            total_value, total_cost, n_positions = self._compute_value(
-                shares_map, cost_map, prices_by_security, snap_date
-            )
+                if price_row is None:
+                    continue
+                total_value += float(holding.shares) * float(price_row.close_price)
+                total_cost += float(holding.total_cost_basis or 0)
+                n_positions += 1
 
             if total_value <= 0:
                 return False

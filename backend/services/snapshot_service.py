@@ -310,6 +310,140 @@ class SnapshotService:
             "benchmarks": benchmark_data,
         }
 
+    def get_return_history(
+        self,
+        portfolio_id: int,
+        days: int = 180,
+        benchmarks: Optional[List[str]] = None,
+    ):
+        """
+        Compute Time-Weighted Return (TWR) series for the portfolio and
+        simple cumulative return for benchmarks. Both start at 0.0 (0%).
+
+        TWR eliminates the distorting effect of cash inflows/outflows so
+        portfolio return is directly comparable to index returns.
+
+        Returns:
+            {labels, portfolio_twr, benchmarks: {TICKER: [pct_return]}}
+        """
+        from ..models.database import (
+            PerformanceSnapshot, PriceHistory, SecurityMaster, Transaction,
+        )
+        from datetime import date, timedelta
+        from collections import defaultdict
+
+        if benchmarks is None:
+            benchmarks = ['SPY', 'QQQ']
+
+        cutoff = date.today() - timedelta(days=days)
+
+        with self.db_config.get_session_context() as session:
+            snap_rows = (
+                session.query(
+                    PerformanceSnapshot.snapshot_date,
+                    PerformanceSnapshot.total_value,
+                )
+                .filter(
+                    PerformanceSnapshot.portfolio_id == portfolio_id,
+                    PerformanceSnapshot.snapshot_date >= cutoff,
+                )
+                .order_by(PerformanceSnapshot.snapshot_date)
+                .all()
+            )
+
+            if len(snap_rows) < 2:
+                return {"labels": [], "portfolio_twr": [], "benchmarks": {}}
+
+            labels = [r.snapshot_date.isoformat() for r in snap_rows]
+            snap_dates = [r.snapshot_date for r in snap_rows]
+            snap_values = [float(r.total_value) for r in snap_rows]
+            first_date = snap_dates[0]
+
+            # Net cash flows per date: BUY = money in (+), SELL = money out (-)
+            # total_amount for BUY is positive cost; SELL is proceeds received
+            txn_rows = (
+                session.query(Transaction.transaction_date, Transaction.transaction_type,
+                              Transaction.total_amount)
+                .filter(
+                    Transaction.portfolio_id == portfolio_id,
+                    Transaction.transaction_date >= cutoff,
+                    Transaction.transaction_type.in_(['BUY', 'SELL', 'REINVEST']),
+                )
+                .all()
+            )
+            cash_flows: dict = defaultdict(float)
+            for txn in txn_rows:
+                if txn.transaction_type in ('BUY', 'REINVEST'):
+                    cash_flows[txn.transaction_date] += float(txn.total_amount)
+                elif txn.transaction_type == 'SELL':
+                    cash_flows[txn.transaction_date] -= float(txn.total_amount)
+
+            # Compute TWR: chain sub-period returns
+            cumulative = 1.0
+            twr_series = [0.0]  # day 0 = 0%
+            for i in range(1, len(snap_rows)):
+                prev_value = snap_values[i - 1]
+                curr_value = snap_values[i]
+                cf = cash_flows.get(snap_dates[i], 0.0)
+                # Adjusted start: previous value plus any cash added at start of period
+                adjusted_start = prev_value + cf
+                if adjusted_start > 0:
+                    period_return = curr_value / adjusted_start - 1.0
+                else:
+                    period_return = 0.0
+                cumulative *= (1.0 + period_return)
+                twr_series.append(round((cumulative - 1.0) * 100, 4))
+
+            # Benchmark simple cumulative returns
+            benchmark_data: Dict[str, List[Optional[float]]] = {}
+            for ticker in benchmarks:
+                sm = session.query(SecurityMaster).filter(
+                    SecurityMaster.ticker == ticker
+                ).first()
+                if not sm:
+                    continue
+
+                price_rows = (
+                    session.query(PriceHistory.price_date, PriceHistory.close_price)
+                    .filter(
+                        PriceHistory.security_id == sm.id,
+                        PriceHistory.price_date >= cutoff,
+                    )
+                    .order_by(PriceHistory.price_date)
+                    .all()
+                )
+                prices_by_date = {r.price_date: float(r.close_price) for r in price_rows}
+
+                # Find starting price on or after first portfolio snapshot date
+                bench_start = None
+                for d in sorted(prices_by_date):
+                    if d >= first_date:
+                        bench_start = prices_by_date[d]
+                        break
+                if not bench_start:
+                    continue
+
+                sorted_bench = sorted(prices_by_date.items())
+                bench_idx = 0
+                last_price = None
+                bench_returns = []
+                for snap_date in snap_dates:
+                    while bench_idx < len(sorted_bench) and sorted_bench[bench_idx][0] <= snap_date:
+                        last_price = sorted_bench[bench_idx][1]
+                        bench_idx += 1
+                    if last_price is not None:
+                        bench_returns.append(round((last_price / bench_start - 1.0) * 100, 4))
+                    else:
+                        bench_returns.append(None)
+
+                benchmark_data[ticker] = bench_returns
+
+        return {
+            "labels": labels,
+            "portfolio_twr": twr_series,
+            "benchmarks": benchmark_data,
+        }
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

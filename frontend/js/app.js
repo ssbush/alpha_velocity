@@ -298,7 +298,7 @@ class AlphaVelocityApp {
             const tickers = holdings.map(h => h.ticker);
 
             // Fire all requests in parallel
-            const [batchResult, watchlistData, targetsResponse, valueHistory] = await Promise.all([
+            const [batchResult, watchlistData, targetsResponse, valueHistory, returnHistory] = await Promise.all([
                 api.getBatchMomentum(tickers).catch(err => {
                     console.warn('Batch momentum fetch failed:', err);
                     return null;
@@ -312,6 +312,9 @@ class AlphaVelocityApp {
                     return { targets: [] };
                 }),
                 fetch(`${api.baseURL}/database/portfolio/${portfolioId}/value-history?days=180`)
+                    .then(r => r.ok ? r.json() : null)
+                    .catch(() => null),
+                fetch(`${api.baseURL}/database/portfolio/${portfolioId}/return-history?days=180`)
                     .then(r => r.ok ? r.json() : null)
                     .catch(() => null)
             ]);
@@ -328,6 +331,20 @@ class AlphaVelocityApp {
                 );
             } else {
                 if (chartSection) chartSection.style.display = 'none';
+            }
+
+            // Render return comparison chart
+            const returnChartSection = document.getElementById('portfolio-return-chart-section');
+            if (returnHistory && returnHistory.labels && returnHistory.labels.length > 1) {
+                if (returnChartSection) returnChartSection.style.display = 'block';
+                chartManager.createReturnComparisonChart(
+                    'portfolio-return-chart',
+                    returnHistory.labels,
+                    returnHistory.portfolio_twr,
+                    returnHistory.benchmarks || {}
+                );
+            } else {
+                if (returnChartSection) returnChartSection.style.display = 'none';
             }
 
             // Process batch momentum results

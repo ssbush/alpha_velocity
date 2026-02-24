@@ -326,6 +326,90 @@ class ChartManager {
         return this.charts[containerId];
     }
 
+    // Create return vs benchmark comparison chart (TWR %)
+    createReturnComparisonChart(containerId, labels, portfolioTwr, benchmarks = {}) {
+        const ctx = document.getElementById(containerId);
+        if (!ctx) return null;
+
+        if (this.charts[containerId]) {
+            this.charts[containerId].destroy();
+        }
+
+        if (!labels.length) return null;
+
+        const BENCHMARK_COLORS = {
+            'SPY': '#f59e0b',
+            'QQQ': '#10b981',
+            'IWM': '#ef4444',
+        };
+
+        const datasets = [{
+            label: 'Portfolio (TWR)',
+            data: labels.map((label, i) => ({ x: label, y: portfolioTwr[i] })),
+            borderColor: '#7c3aed',
+            backgroundColor: 'rgba(124, 58, 237, 0.06)',
+            borderWidth: 2,
+            fill: true,
+            tension: 0.35,
+            pointRadius: 2,
+            pointHoverRadius: 5,
+        }];
+
+        for (const [ticker, values] of Object.entries(benchmarks)) {
+            datasets.push({
+                label: ticker,
+                data: labels.map((label, i) => ({ x: label, y: values[i] })),
+                borderColor: BENCHMARK_COLORS[ticker] || '#9ca3af',
+                backgroundColor: 'rgba(0,0,0,0)',
+                borderWidth: 1.5,
+                borderDash: [4, 3],
+                fill: false,
+                tension: 0.35,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+            });
+        }
+
+        const config = {
+            type: 'line',
+            data: { datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: { color: '#9ca3af', boxWidth: 20, padding: 12, font: { size: 11 } }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y >= 0 ? '+' : ''}${ctx.parsed.y.toFixed(2)}%`
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: { unit: 'month', tooltipFormat: 'MMM d, yyyy' },
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        ticks: { color: '#9ca3af', maxTicksLimit: 6 }
+                    },
+                    y: {
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        ticks: {
+                            color: '#9ca3af',
+                            callback: v => (v >= 0 ? '+' : '') + v.toFixed(1) + '%'
+                        }
+                    }
+                }
+            }
+        };
+
+        this.charts[containerId] = new Chart(ctx, config);
+        return this.charts[containerId];
+    }
+
     // Helper method to calculate category allocations from portfolio data
     calculateCategoryAllocations(portfolioData) {
         if (!portfolioData || !portfolioData.holdings) {

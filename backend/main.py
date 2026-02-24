@@ -1226,6 +1226,22 @@ async def get_portfolio_value_history(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching value history: {str(e)}")
 
+@app.get("/database/portfolio/{portfolio_id}/return-history")
+async def get_portfolio_return_history(
+    portfolio_id: int,
+    days: int = 180,
+    user_id: Optional[int] = Depends(get_optional_user_id)
+) -> dict:
+    """Time-weighted return series for portfolio vs benchmarks, both starting at 0%."""
+    try:
+        from .database.config import db_config
+        from .services.snapshot_service import SnapshotService
+        return SnapshotService(db_config).get_return_history(portfolio_id, days)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching return history: {str(e)}")
+
 @app.post("/database/portfolio/{portfolio_id}/backfill-snapshots")
 async def backfill_portfolio_snapshots(
     portfolio_id: int,

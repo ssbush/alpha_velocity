@@ -311,7 +311,7 @@ class AlphaVelocityApp {
                     console.warn('Failed to fetch category targets:', err);
                     return { targets: [] };
                 }),
-                fetch(`${api.baseURL}/database/portfolio/${portfolioId}/value-history?days=365`)
+                fetch(`${api.baseURL}/database/portfolio/${portfolioId}/value-history?days=180`)
                     .then(r => r.ok ? r.json() : null)
                     .catch(() => null)
             ]);

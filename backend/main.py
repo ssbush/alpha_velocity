@@ -1213,7 +1213,7 @@ async def get_performance_history_db(portfolio_id: int, days: int = 365) -> dict
 @app.get("/database/portfolio/{portfolio_id}/value-history")
 async def get_portfolio_value_history(
     portfolio_id: int,
-    days: int = 365,
+    days: int = 180,
     user_id: Optional[int] = Depends(get_optional_user_id)
 ) -> dict:
     """Get portfolio value history from performance_snapshots (transaction-accurate)."""

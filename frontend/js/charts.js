@@ -254,13 +254,15 @@ class ChartManager {
 
         if (!labels.length) return null;
 
+        // Build {x: date, y: value} points for time scale
+        const dataPoints = labels.map((label, i) => ({ x: label, y: values[i] }));
+
         const config = {
             type: 'line',
             data: {
-                labels,
                 datasets: [{
                     label: 'Portfolio Value',
-                    data: values,
+                    data: dataPoints,
                     borderColor: '#7c3aed',
                     backgroundColor: 'rgba(124, 58, 237, 0.08)',
                     borderWidth: 2,
@@ -283,8 +285,10 @@ class ChartManager {
                 },
                 scales: {
                     x: {
+                        type: 'time',
+                        time: { unit: 'month', tooltipFormat: 'MMM d, yyyy' },
                         grid: { color: 'rgba(255,255,255,0.05)' },
-                        ticks: { color: '#9ca3af', maxTicksLimit: 8 }
+                        ticks: { color: '#9ca3af', maxTicksLimit: 6 }
                     },
                     y: {
                         grid: { color: 'rgba(255,255,255,0.05)' },

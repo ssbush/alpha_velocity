@@ -213,7 +213,7 @@ class SnapshotService:
         logger.info("Recorded daily snapshots for %d/%d portfolios", written, len(portfolio_ids))
         return written
 
-    def get_value_history(self, portfolio_id: int, days: int = 365):
+    def get_value_history(self, portfolio_id: int, days: int = 180):
         """
         Read value history from performance_snapshots.
         Returns {labels, values} for Chart.js.
@@ -238,7 +238,7 @@ class SnapshotService:
             )
 
         return {
-            "labels": [r.snapshot_date.strftime("%m/%d") for r in rows],
+            "labels": [r.snapshot_date.isoformat() for r in rows],
             "values": [float(r.total_value) for r in rows],
         }
 

@@ -320,7 +320,12 @@ class AlphaVelocityApp {
             const chartSection = document.getElementById('portfolio-value-chart-section');
             if (valueHistory && valueHistory.labels && valueHistory.labels.length > 1) {
                 if (chartSection) chartSection.style.display = 'block';
-                chartManager.createPortfolioValueChart('portfolio-value-chart', valueHistory.labels, valueHistory.values);
+                chartManager.createPortfolioValueChart(
+                    'portfolio-value-chart',
+                    valueHistory.labels,
+                    valueHistory.values,
+                    valueHistory.benchmarks || {}
+                );
             } else {
                 if (chartSection) chartSection.style.display = 'none';
             }

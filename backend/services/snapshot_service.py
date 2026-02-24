@@ -213,18 +213,29 @@ class SnapshotService:
         logger.info("Recorded daily snapshots for %d/%d portfolios", written, len(portfolio_ids))
         return written
 
-    def get_value_history(self, portfolio_id: int, days: int = 180):
+    def get_value_history(
+        self,
+        portfolio_id: int,
+        days: int = 180,
+        benchmarks: Optional[List[str]] = None,
+    ):
         """
-        Read value history from performance_snapshots.
-        Returns {labels, values} for Chart.js.
+        Read value history from performance_snapshots and optionally include
+        benchmark lines rebased to the portfolio's starting value.
+
+        Returns:
+            {labels, values, benchmarks: {TICKER: [normalized_values]}}
         """
-        from ..models.database import PerformanceSnapshot
+        from ..models.database import PerformanceSnapshot, PriceHistory, SecurityMaster
         from datetime import date, timedelta
+
+        if benchmarks is None:
+            benchmarks = ['SPY', 'QQQ']
 
         cutoff = date.today() - timedelta(days=days)
 
         with self.db_config.get_session_context() as session:
-            rows = (
+            snap_rows = (
                 session.query(
                     PerformanceSnapshot.snapshot_date,
                     PerformanceSnapshot.total_value,
@@ -237,9 +248,66 @@ class SnapshotService:
                 .all()
             )
 
+            if not snap_rows:
+                return {"labels": [], "values": [], "benchmarks": {}}
+
+            labels = [r.snapshot_date.isoformat() for r in snap_rows]
+            values = [float(r.total_value) for r in snap_rows]
+            first_date = snap_rows[0].snapshot_date
+            portfolio_start = values[0]
+            snap_dates = {r.snapshot_date for r in snap_rows}
+
+            # Fetch and normalize each benchmark
+            benchmark_data: Dict[str, List[Optional[float]]] = {}
+            for ticker in benchmarks:
+                sm = session.query(SecurityMaster).filter(
+                    SecurityMaster.ticker == ticker
+                ).first()
+                if not sm:
+                    continue
+
+                price_rows = (
+                    session.query(PriceHistory.price_date, PriceHistory.close_price)
+                    .filter(
+                        PriceHistory.security_id == sm.id,
+                        PriceHistory.price_date >= cutoff,
+                    )
+                    .order_by(PriceHistory.price_date)
+                    .all()
+                )
+
+                # Find benchmark price on or nearest to the portfolio's first date
+                prices_by_date = {r.price_date: float(r.close_price) for r in price_rows}
+                # Walk forward from first_date to find the first available price
+                bench_start = None
+                for d in sorted(prices_by_date):
+                    if d >= first_date:
+                        bench_start = prices_by_date[d]
+                        break
+                if bench_start is None or bench_start == 0:
+                    continue
+
+                scale = portfolio_start / bench_start
+
+                # Produce a value for each portfolio snapshot date using
+                # the most recent benchmark price on or before that date
+                sorted_bench = sorted(prices_by_date.items())
+                normalized = []
+                bench_idx = 0
+                last_price = None
+                for snap_date in [r.snapshot_date for r in snap_rows]:
+                    # Advance benchmark index up to snap_date
+                    while bench_idx < len(sorted_bench) and sorted_bench[bench_idx][0] <= snap_date:
+                        last_price = sorted_bench[bench_idx][1]
+                        bench_idx += 1
+                    normalized.append(round(last_price * scale, 2) if last_price else None)
+
+                benchmark_data[ticker] = normalized
+
         return {
-            "labels": [r.snapshot_date.isoformat() for r in rows],
-            "values": [float(r.total_value) for r in rows],
+            "labels": labels,
+            "values": values,
+            "benchmarks": benchmark_data,
         }
 
     # ------------------------------------------------------------------

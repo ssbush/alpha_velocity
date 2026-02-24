@@ -244,7 +244,7 @@ class ChartManager {
     }
 
     // Create portfolio total value history chart
-    createPortfolioValueChart(containerId, labels, values) {
+    createPortfolioValueChart(containerId, labels, values, benchmarks = {}) {
         const ctx = document.getElementById(containerId);
         if (!ctx) return null;
 
@@ -254,24 +254,45 @@ class ChartManager {
 
         if (!labels.length) return null;
 
-        // Build {x: date, y: value} points for time scale
-        const dataPoints = labels.map((label, i) => ({ x: label, y: values[i] }));
+        const BENCHMARK_COLORS = {
+            'SPY': { line: '#f59e0b', bg: 'rgba(245,158,11,0)' },
+            'QQQ': { line: '#10b981', bg: 'rgba(16,185,129,0)' },
+            'IWM': { line: '#ef4444', bg: 'rgba(239,68,68,0)'  },
+        };
+
+        // Portfolio dataset
+        const datasets = [{
+            label: 'Portfolio',
+            data: labels.map((label, i) => ({ x: label, y: values[i] })),
+            borderColor: '#7c3aed',
+            backgroundColor: 'rgba(124, 58, 237, 0.08)',
+            borderWidth: 2,
+            fill: true,
+            tension: 0.35,
+            pointRadius: 2,
+            pointHoverRadius: 5
+        }];
+
+        // Benchmark datasets
+        for (const [ticker, bValues] of Object.entries(benchmarks)) {
+            const colors = BENCHMARK_COLORS[ticker] || { line: '#9ca3af', bg: 'rgba(0,0,0,0)' };
+            datasets.push({
+                label: ticker,
+                data: labels.map((label, i) => ({ x: label, y: bValues[i] })),
+                borderColor: colors.line,
+                backgroundColor: colors.bg,
+                borderWidth: 1.5,
+                borderDash: [4, 3],
+                fill: false,
+                tension: 0.35,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+            });
+        }
 
         const config = {
             type: 'line',
-            data: {
-                datasets: [{
-                    label: 'Portfolio Value',
-                    data: dataPoints,
-                    borderColor: '#7c3aed',
-                    backgroundColor: 'rgba(124, 58, 237, 0.08)',
-                    borderWidth: 2,
-                    fill: true,
-                    tension: 0.35,
-                    pointRadius: 2,
-                    pointHoverRadius: 5
-                }]
-            },
+            data: { datasets },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,

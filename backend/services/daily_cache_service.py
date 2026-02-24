@@ -278,11 +278,78 @@ class DailyCacheService:
             # Record daily portfolio snapshot using cached data
             self._record_daily_portfolio_snapshot(date)
 
+            # Persist momentum scores to DB (best-effort)
+            self._persist_scores_to_db(date, daily_momentum)
+
             return True
 
         except Exception as e:
             logger.error("Failed to update daily cache: %s", e)
             return False
+
+    def _persist_scores_to_db(self, date: str, daily_momentum: Dict[str, Dict]):
+        """Upsert today's momentum scores into the momentum_scores DB table."""
+        try:
+            from ..database.config import db_config
+            from ..models.database import MomentumScore, SecurityMaster
+            from datetime import date as date_type
+
+            score_date = date_type.fromisoformat(date)
+
+            with db_config.get_session_context() as session:
+                # Bulk-fetch existing SecurityMaster rows for all tickers
+                tickers = list(daily_momentum.keys())
+                sec_rows = (
+                    session.query(SecurityMaster)
+                    .filter(SecurityMaster.ticker.in_(tickers))
+                    .all()
+                )
+                sec_map = {s.ticker: s for s in sec_rows}
+
+                for ticker, data in daily_momentum.items():
+                    # Auto-create SecurityMaster entry if missing
+                    if ticker not in sec_map:
+                        sec = SecurityMaster(
+                            ticker=ticker,
+                            company_name=ticker,
+                            security_type="STOCK",
+                            is_active=True,
+                        )
+                        session.add(sec)
+                        session.flush()
+                        sec_map[ticker] = sec
+
+                    sec = sec_map[ticker]
+                    existing = (
+                        session.query(MomentumScore)
+                        .filter_by(security_id=sec.id, score_date=score_date)
+                        .first()
+                    )
+                    def _f(v):
+                        return float(v) if v is not None else None
+
+                    if existing:
+                        existing.composite_score = _f(data.get("composite_score", 0))
+                        existing.price_momentum = _f(data.get("price_momentum"))
+                        existing.technical_momentum = _f(data.get("technical_momentum"))
+                        existing.fundamental_momentum = _f(data.get("fundamental_momentum"))
+                        existing.relative_momentum = _f(data.get("relative_momentum"))
+                        existing.rating = data.get("rating")
+                    else:
+                        session.add(MomentumScore(
+                            security_id=sec.id,
+                            score_date=score_date,
+                            composite_score=_f(data.get("composite_score", 0)),
+                            price_momentum=_f(data.get("price_momentum")),
+                            technical_momentum=_f(data.get("technical_momentum")),
+                            fundamental_momentum=_f(data.get("fundamental_momentum")),
+                            relative_momentum=_f(data.get("relative_momentum")),
+                            rating=data.get("rating"),
+                        ))
+
+            logger.info("Persisted %d momentum scores to DB for %s", len(daily_momentum), date)
+        except Exception as e:
+            logger.warning("Failed to persist momentum scores to DB: %s", e)
 
     def _record_daily_portfolio_snapshot(self, date: str):
         """Record daily portfolio snapshot using cached data"""

@@ -659,26 +659,61 @@ async def compare_model_vs_custom(custom_portfolio: str) -> PortfolioComparison:
 
 @app.get("/historical/momentum/{ticker}")
 async def get_momentum_history(ticker: str, days: int = 30) -> dict:
-    """Get historical momentum scores for a ticker"""
+    """Get historical momentum scores for a ticker (reads from momentum_scores DB table)"""
     try:
-        history = momentum_engine.historical_service.get_momentum_history(ticker.upper(), days)
+        from .database.config import db_config
+        from .models.database import MomentumScore as MomentumScoreDB, SecurityMaster
+        from datetime import date, timedelta
+
+        ticker_upper = ticker.upper()
+        cutoff = date.today() - timedelta(days=days)
+
+        history = []
+        with db_config.get_session_context() as session:
+            rows = (
+                session.query(
+                    MomentumScoreDB.score_date,
+                    MomentumScoreDB.composite_score,
+                    MomentumScoreDB.price_momentum,
+                    MomentumScoreDB.technical_momentum,
+                    MomentumScoreDB.fundamental_momentum,
+                    MomentumScoreDB.relative_momentum,
+                    MomentumScoreDB.rating,
+                )
+                .join(SecurityMaster, MomentumScoreDB.security_id == SecurityMaster.id)
+                .filter(
+                    SecurityMaster.ticker == ticker_upper,
+                    MomentumScoreDB.score_date >= cutoff,
+                )
+                .order_by(MomentumScoreDB.score_date)
+                .all()
+            )
+            history = [
+                {
+                    "timestamp": r.score_date.isoformat(),
+                    "composite_score": float(r.composite_score),
+                    "rating": r.rating or "",
+                    "price_momentum": float(r.price_momentum or 0),
+                    "technical_momentum": float(r.technical_momentum or 0),
+                    "fundamental_momentum": float(r.fundamental_momentum or 0),
+                    "relative_momentum": float(r.relative_momentum or 0),
+                }
+                for r in rows
+            ]
 
         if not history:
             return {
-                "ticker": ticker.upper(),
+                "ticker": ticker_upper,
                 "history": [],
                 "trend": "neutral",
                 "current_score": 0,
                 "score_change": 0,
-                "message": f"No historical data available for {ticker.upper()}"
+                "message": f"No historical data available for {ticker_upper}"
             }
 
-        # Calculate trend
+        score_change = 0
         if len(history) >= 2:
-            initial_score = history[0]['composite_score']
-            latest_score = history[-1]['composite_score']
-            score_change = latest_score - initial_score
-
+            score_change = history[-1]['composite_score'] - history[0]['composite_score']
             if score_change > 5:
                 trend = "improving"
             elif score_change < -5:
@@ -687,14 +722,13 @@ async def get_momentum_history(ticker: str, days: int = 30) -> dict:
                 trend = "stable"
         else:
             trend = "neutral"
-            score_change = 0
 
         return {
-            "ticker": ticker.upper(),
+            "ticker": ticker_upper,
             "history": history,
             "trend": trend,
-            "current_score": history[-1]['composite_score'] if history else 0,
-            "score_change": score_change
+            "current_score": history[-1]['composite_score'],
+            "score_change": score_change,
         }
     except HTTPException:
         raise

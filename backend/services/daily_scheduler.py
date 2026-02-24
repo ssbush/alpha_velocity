@@ -19,10 +19,11 @@ from .daily_cache_service import DailyCacheService
 class DailyScheduler:
     """Scheduler for daily cache updates"""
 
-    def __init__(self, momentum_engine, portfolio_tickers: List[str], price_service=None):
+    def __init__(self, momentum_engine, portfolio_tickers: List[str], price_service=None, db_config=None):
         self.momentum_engine = momentum_engine
         self.portfolio_tickers = portfolio_tickers
         self.cache_service = DailyCacheService(price_service=price_service)
+        self.db_config = db_config
         self.is_running = False
         self.scheduler_thread = None
 
@@ -49,6 +50,12 @@ class DailyScheduler:
 
             if success:
                 logger.info("Daily cache update completed successfully")
+                if self.db_config is not None:
+                    try:
+                        from .snapshot_service import SnapshotService
+                        SnapshotService(self.db_config).record_all_daily()
+                    except Exception as snap_err:
+                        logger.error("Portfolio snapshot recording failed: %s", snap_err)
             else:
                 logger.error("Daily cache update failed")
 
@@ -176,10 +183,10 @@ class MarketHoursHelper:
 daily_scheduler: DailyScheduler = None
 
 
-def initialize_scheduler(momentum_engine, portfolio_tickers: List[str], price_service=None):
+def initialize_scheduler(momentum_engine, portfolio_tickers: List[str], price_service=None, db_config=None):
     """Initialize the global scheduler"""
     global daily_scheduler
-    daily_scheduler = DailyScheduler(momentum_engine, portfolio_tickers, price_service=price_service)
+    daily_scheduler = DailyScheduler(momentum_engine, portfolio_tickers, price_service=price_service, db_config=db_config)
     return daily_scheduler
 
 

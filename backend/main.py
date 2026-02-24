@@ -229,7 +229,8 @@ def get_all_portfolio_tickers() -> List[str]:
 
 # Initialize daily cache scheduler
 PORTFOLIO_TICKERS = get_all_portfolio_tickers()
-daily_scheduler = initialize_scheduler(momentum_engine, PORTFOLIO_TICKERS, price_service=price_service)
+_scheduler_db_config = db_config if DATABASE_AVAILABLE else None
+daily_scheduler = initialize_scheduler(momentum_engine, PORTFOLIO_TICKERS, price_service=price_service, db_config=_scheduler_db_config)
 
 logger.info(
     f"AlphaVelocity initialized with {len(PORTFOLIO_TICKERS)} tickers for daily caching",
@@ -1208,6 +1209,40 @@ async def get_performance_history_db(portfolio_id: int, days: int = 365) -> dict
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching performance: {str(e)}")
+
+@app.get("/database/portfolio/{portfolio_id}/value-history")
+async def get_portfolio_value_history(
+    portfolio_id: int,
+    days: int = 365,
+    user_id: Optional[int] = Depends(get_optional_user_id)
+) -> dict:
+    """Get portfolio value history from performance_snapshots (transaction-accurate)."""
+    try:
+        from .database.config import db_config
+        from .services.snapshot_service import SnapshotService
+        return SnapshotService(db_config).get_value_history(portfolio_id, days)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching value history: {str(e)}")
+
+@app.post("/database/portfolio/{portfolio_id}/backfill-snapshots")
+async def backfill_portfolio_snapshots(
+    portfolio_id: int,
+    user_id: Optional[int] = Depends(get_optional_user_id)
+) -> dict:
+    """Replay transactions × price_history to populate performance_snapshots."""
+    try:
+        from .database.config import db_config
+        from .services.snapshot_service import SnapshotService
+        written = await asyncio.to_thread(
+            SnapshotService(db_config).backfill_portfolio, portfolio_id
+        )
+        return {"portfolio_id": portfolio_id, "snapshots_written": written}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Backfill failed: {str(e)}")
 
 @app.post("/database/portfolio/{portfolio_id}/update-momentum")
 async def update_momentum_scores_db(portfolio_id: int) -> Any:

@@ -243,6 +243,64 @@ class ChartManager {
         return this.charts[containerId];
     }
 
+    // Create portfolio total value history chart
+    createPortfolioValueChart(containerId, labels, values) {
+        const ctx = document.getElementById(containerId);
+        if (!ctx) return null;
+
+        if (this.charts[containerId]) {
+            this.charts[containerId].destroy();
+        }
+
+        if (!labels.length) return null;
+
+        const config = {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Portfolio Value',
+                    data: values,
+                    borderColor: '#7c3aed',
+                    backgroundColor: 'rgba(124, 58, 237, 0.08)',
+                    borderWidth: 2,
+                    fill: true,
+                    tension: 0.35,
+                    pointRadius: 2,
+                    pointHoverRadius: 5
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => '$' + ctx.parsed.y.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        ticks: { color: '#9ca3af', maxTicksLimit: 8 }
+                    },
+                    y: {
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        ticks: {
+                            color: '#9ca3af',
+                            callback: v => '$' + v.toLocaleString('en-US', {notation: 'compact'})
+                        }
+                    }
+                }
+            }
+        };
+
+        this.charts[containerId] = new Chart(ctx, config);
+        return this.charts[containerId];
+    }
+
     // Helper method to calculate category allocations from portfolio data
     calculateCategoryAllocations(portfolioData) {
         if (!portfolioData || !portfolioData.holdings) {

@@ -297,8 +297,8 @@ class AlphaVelocityApp {
 
             const tickers = holdings.map(h => h.ticker);
 
-            // Fire all three requests in parallel
-            const [batchResult, watchlistData, targetsResponse] = await Promise.all([
+            // Fire all requests in parallel
+            const [batchResult, watchlistData, targetsResponse, valueHistory] = await Promise.all([
                 api.getBatchMomentum(tickers).catch(err => {
                     console.warn('Batch momentum fetch failed:', err);
                     return null;
@@ -310,8 +310,20 @@ class AlphaVelocityApp {
                 api.getPortfolioCategoryTargets(portfolioId).catch(err => {
                     console.warn('Failed to fetch category targets:', err);
                     return { targets: [] };
-                })
+                }),
+                fetch(`${api.baseURL}/database/portfolio/${portfolioId}/value-history?days=365`)
+                    .then(r => r.ok ? r.json() : null)
+                    .catch(() => null)
             ]);
+
+            // Render value history chart
+            const chartSection = document.getElementById('portfolio-value-chart-section');
+            if (valueHistory && valueHistory.labels && valueHistory.labels.length > 1) {
+                if (chartSection) chartSection.style.display = 'block';
+                chartManager.createPortfolioValueChart('portfolio-value-chart', valueHistory.labels, valueHistory.values);
+            } else {
+                if (chartSection) chartSection.style.display = 'none';
+            }
 
             // Process batch momentum results
             if (batchResult && batchResult.data) {

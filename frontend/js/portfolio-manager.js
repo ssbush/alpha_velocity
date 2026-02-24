@@ -355,12 +355,13 @@ class PortfolioManager {
     /**
      * Select a portfolio
      */
-    async selectPortfolio(portfolioId) {
-        const result = await this.getPortfolio(portfolioId);
-        if (result.success) {
-            localStorage.setItem('selected_portfolio_id', portfolioId);
-            window.location.reload();
-        }
+    selectPortfolio(portfolioId) {
+        localStorage.setItem('selected_portfolio_id', portfolioId);
+        const rows = document.querySelectorAll('.portfolio-row');
+        rows.forEach(r => {
+            r.classList.toggle('selected', parseInt(r.dataset.portfolioId) === portfolioId);
+        });
+        if (window.app) window.app.loadSelectedPortfolioHoldings(portfolioId);
     }
 
     /**
@@ -520,49 +521,45 @@ class PortfolioManager {
             return 0;
         });
 
-        // Render portfolio cards
-        const html = `
-            <div class="portfolios-grid">
-                ${portfolios.map((p, index) => {
-                    const isSelected = p.portfolio_id === selectedId;
-                    const returnClass = p.total_return >= 0 ? 'positive' : 'negative';
-                    const returnSign = p.total_return >= 0 ? '+' : '';
+        // Render compact portfolio list
+        const rows = portfolios.map(p => {
+            const isSelected = p.portfolio_id === selectedId;
+            const returnClass = p.total_return >= 0 ? 'positive' : 'negative';
+            const returnSign = p.total_return >= 0 ? '+' : '';
+            const value = '$' + p.total_value.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            const ret = `${returnSign}${p.total_return_pct.toFixed(2)}%`;
 
-                    return `
-                        <div class="portfolio-card ${isSelected ? 'selected' : ''}" data-portfolio-id="${p.portfolio_id}">
-                            ${isSelected ? '<div class="selected-badge">Active</div>' : ''}
-                            <div class="portfolio-card-header">
-                                <h3>${p.name}</h3>
-                                ${p.description ? `<p class="description">${p.description}</p>` : ''}
-                            </div>
-                            <div class="portfolio-stats">
-                                <div class="stat">
-                                    <span class="stat-label">Total Value</span>
-                                    <span class="stat-value">$${p.total_value.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                                </div>
-                                <div class="stat">
-                                    <span class="stat-label">Positions</span>
-                                    <span class="stat-value">${p.total_positions}</span>
-                                </div>
-                                <div class="stat">
-                                    <span class="stat-label">Return</span>
-                                    <span class="stat-value ${returnClass}">
-                                        ${returnSign}$${Math.abs(p.total_return).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-                                        <span class="return-pct">(${returnSign}${p.total_return_pct.toFixed(2)}%)</span>
-                                    </span>
-                                </div>
-                            </div>
-                            <div class="portfolio-card-actions">
-                                ${!isSelected ? `<button class="btn-select" onclick="window.app.portfolioManager.selectPortfolio(${p.portfolio_id})">Select</button>` : ''}
-                                <button class="btn-view" onclick="window.app.portfolioManager.viewPortfolioDetails(${p.portfolio_id})">View Details</button>
-                            </div>
-                        </div>
-                    `;
-                }).join('')}
-            </div>
-        `;
+            return `
+                <div class="portfolio-row ${isSelected ? 'selected' : ''}" data-portfolio-id="${p.portfolio_id}">
+                    <span class="portfolio-row-name">${p.name}</span>
+                    <div class="portfolio-row-stat">
+                        <span class="portfolio-row-stat-label">Value</span>
+                        <span class="portfolio-row-stat-value">${value}</span>
+                    </div>
+                    <div class="portfolio-row-stat">
+                        <span class="portfolio-row-stat-label">Positions</span>
+                        <span class="portfolio-row-stat-value">${p.total_positions}</span>
+                    </div>
+                    <div class="portfolio-row-stat">
+                        <span class="portfolio-row-stat-label">Return</span>
+                        <span class="portfolio-row-stat-value ${returnClass}">${ret}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
 
-        container.innerHTML = html;
+        container.innerHTML = `<div class="portfolios-list">${rows}</div>`;
+
+        // Wire up click handlers
+        container.querySelectorAll('.portfolio-row').forEach(row => {
+            row.addEventListener('click', () => {
+                const portfolioId = parseInt(row.dataset.portfolioId);
+                container.querySelectorAll('.portfolio-row').forEach(r => r.classList.remove('selected'));
+                row.classList.add('selected');
+                localStorage.setItem('selected_portfolio_id', portfolioId);
+                if (window.app) window.app.loadSelectedPortfolioHoldings(portfolioId);
+            });
+        });
     }
 
     /**

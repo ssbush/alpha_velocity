@@ -35,12 +35,12 @@ PORTFOLIO_CATEGORIES = {
         'benchmark': 'VNQ'
     },
     'International Tech/Momentum': {
-        'tickers': ['EWJ', 'EWT', 'INDA', 'EWY'],
+        'tickers': ['EWJ', 'EWT', 'INDA', 'EWY', 'EWU'],
         'target_allocation': 0.12,
         'benchmark': 'VEA'
     },
     'Tactical Fixed Income': {
-        'tickers': ['SHY', 'VCIT', 'TIP', 'IEF', 'BIL', 'LQD', 'FLOT'],
+        'tickers': ['SHY', 'VCIT', 'TIP', 'IEF', 'BIL', 'LQD', 'FLOT', 'XHLF'],
         'target_allocation': 0.08,
         'benchmark': 'AGG'
     },

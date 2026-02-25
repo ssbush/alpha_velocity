@@ -50,12 +50,6 @@ class DailyScheduler:
 
             if success:
                 logger.info("Daily cache update completed successfully")
-                if self.db_config is not None:
-                    try:
-                        from .snapshot_service import SnapshotService
-                        SnapshotService(self.db_config).record_all_daily()
-                    except Exception as snap_err:
-                        logger.error("Portfolio snapshot recording failed: %s", snap_err)
             else:
                 logger.error("Daily cache update failed")
 

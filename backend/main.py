@@ -231,6 +231,7 @@ def get_all_portfolio_tickers() -> List[str]:
 PORTFOLIO_TICKERS = get_all_portfolio_tickers()
 _scheduler_db_config = db_config if DATABASE_AVAILABLE else None
 daily_scheduler = initialize_scheduler(momentum_engine, PORTFOLIO_TICKERS, price_service=price_service, db_config=_scheduler_db_config)
+daily_scheduler.start_scheduler()
 
 logger.info(
     f"AlphaVelocity initialized with {len(PORTFOLIO_TICKERS)} tickers for daily caching",

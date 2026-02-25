@@ -278,14 +278,64 @@ class DailyCacheService:
             # Record daily portfolio snapshot using cached data
             self._record_daily_portfolio_snapshot(date)
 
-            # Persist momentum scores to DB (best-effort)
+            # Persist prices and momentum scores to DB (best-effort)
+            self._persist_prices_to_db(date, daily_prices)
             self._persist_scores_to_db(date, daily_momentum)
+
+            # Record portfolio value snapshots in DB (best-effort)
+            self._record_db_snapshots()
 
             return True
 
         except Exception as e:
             logger.error("Failed to update daily cache: %s", e)
             return False
+
+    def _persist_prices_to_db(self, date: str, daily_prices: Dict[str, float]):
+        """Upsert today's closing prices into the price_history DB table."""
+        try:
+            from ..database.config import db_config
+            from ..models.database import PriceHistory, SecurityMaster
+            from datetime import date as date_type
+
+            price_date = date_type.fromisoformat(date)
+
+            with db_config.get_session_context() as session:
+                tickers = list(daily_prices.keys())
+                sec_rows = session.query(SecurityMaster).filter(SecurityMaster.ticker.in_(tickers)).all()
+                sec_map = {s.ticker: s for s in sec_rows}
+
+                for ticker, close_price in daily_prices.items():
+                    if ticker not in sec_map:
+                        sec = SecurityMaster(ticker=ticker, company_name=ticker, security_type="STOCK", is_active=True)
+                        session.add(sec)
+                        session.flush()
+                        sec_map[ticker] = sec
+
+                    sec = sec_map[ticker]
+                    existing = session.query(PriceHistory).filter_by(security_id=sec.id, price_date=price_date).first()
+                    if existing:
+                        existing.close_price = float(close_price)
+                    else:
+                        session.add(PriceHistory(
+                            security_id=sec.id,
+                            price_date=price_date,
+                            close_price=float(close_price),
+                        ))
+
+            logger.info("Persisted %d prices to DB for %s", len(daily_prices), date)
+        except Exception as e:
+            logger.warning("Failed to persist prices to DB: %s", e)
+
+    def _record_db_snapshots(self):
+        """Record portfolio value snapshots in the performance_snapshots DB table."""
+        try:
+            from ..database.config import db_config
+            from .snapshot_service import SnapshotService
+            SnapshotService(db_config).record_all_daily()
+            logger.info("Recorded DB portfolio snapshots")
+        except Exception as e:
+            logger.warning("Failed to record DB portfolio snapshots: %s", e)
 
     def _persist_scores_to_db(self, date: str, daily_momentum: Dict[str, Dict]):
         """Upsert today's momentum scores into the momentum_scores DB table."""

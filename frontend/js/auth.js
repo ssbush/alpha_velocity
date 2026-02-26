@@ -169,6 +169,25 @@ class AuthManager {
     }
 
     /**
+     * Unregister all service workers and delete their caches, then reload.
+     * This ensures the browser fetches fresh HTML/JS directly from the server,
+     * bypassing any stale SW cache (e.g. old CACHE_NAME still holding old files).
+     */
+    async _clearSwAndReload() {
+        if ('serviceWorker' in navigator) {
+            try {
+                const regs = await navigator.serviceWorker.getRegistrations();
+                await Promise.all(regs.map(r => r.unregister()));
+                const cacheKeys = await caches.keys();
+                await Promise.all(cacheKeys.map(k => caches.delete(k)));
+            } catch (e) {
+                // Ignore errors — we'll reload regardless
+            }
+        }
+        window.location.reload();
+    }
+
+    /**
      * Logout user
      */
     logout() {
@@ -357,7 +376,7 @@ class AuthManager {
 
                 const result = await this.login(username, password);
                 if (result.success) {
-                    window.location.reload();
+                    await this._clearSwAndReload();
                 } else {
                     errorDiv.textContent = result.error;
                     errorDiv.style.display = 'block';
@@ -386,7 +405,7 @@ class AuthManager {
 
                 const result = await this.register(username, email, password, firstName, lastName);
                 if (result.success) {
-                    window.location.reload();
+                    await this._clearSwAndReload();
                 } else {
                     errorDiv.textContent = result.error;
                     errorDiv.style.display = 'block';

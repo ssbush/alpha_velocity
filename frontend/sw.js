@@ -1,5 +1,5 @@
 // AlphaVelocity Service Worker
-const CACHE_NAME = 'alphavelocity-v1.0.0';
+const CACHE_NAME = 'alphavelocity-v2.0.0';
 const OFFLINE_URL = '/offline.html';
 
 // Resources to cache immediately
@@ -76,8 +76,11 @@ self.addEventListener('fetch', event => {
   }
 
   // Handle different resource types with different strategies
-  if (isAppShellRequest(request)) {
-    // App shell: Cache first, fallback to network
+  if (url.pathname === '/') {
+    // Main HTML: always fetch fresh so updated JS versions are picked up
+    event.respondWith(networkFirst(request));
+  } else if (isAppShellRequest(request)) {
+    // Versioned JS/CSS: cache-first (version param in URL busts cache on deploy)
     event.respondWith(cacheFirst(request));
   } else if (isApiRequest(request)) {
     // API requests: Network first, fallback to cache

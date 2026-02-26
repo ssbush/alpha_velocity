@@ -1905,9 +1905,15 @@ _FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
 
 @app.get("/", include_in_schema=False)
 async def serve_index():
-    response = FileResponse(os.path.join(_FRONTEND_DIR, "index.html"))
-    response.headers["Cache-Control"] = "no-store"
-    return response
+    # Read and return HTML directly — no ETag/Last-Modified so browsers
+    # can't short-circuit with 304 and load stale JS versions.
+    with open(os.path.join(_FRONTEND_DIR, "index.html"), "rb") as f:
+        content = f.read()
+    return Response(
+        content=content,
+        media_type="text/html",
+        headers={"Cache-Control": "no-store"},
+    )
 
 # Serve all other frontend static files (must be last to avoid shadowing API routes)
 app.mount("/", StaticFiles(directory=_FRONTEND_DIR, html=True), name="frontend")

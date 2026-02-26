@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, Depends, status, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
@@ -1900,8 +1900,17 @@ async def backfill_splits_endpoint(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error backfilling splits: {str(e)}")
 
-# Serve frontend static files (must be last to avoid shadowing API routes)
-app.mount("/", StaticFiles(directory=os.path.join(os.path.dirname(__file__), "..", "frontend"), html=True), name="frontend")
+# Serve index.html with no-cache headers so browsers always fetch fresh HTML
+_FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
+
+@app.get("/", include_in_schema=False)
+async def serve_index():
+    response = FileResponse(os.path.join(_FRONTEND_DIR, "index.html"))
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+# Serve all other frontend static files (must be last to avoid shadowing API routes)
+app.mount("/", StaticFiles(directory=_FRONTEND_DIR, html=True), name="frontend")
 
 if __name__ == "__main__":
     import uvicorn

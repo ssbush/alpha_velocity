@@ -357,9 +357,7 @@ class AuthManager {
 
                 const result = await this.login(username, password);
                 if (result.success) {
-                    this.hideModal();
-                    this.initAuthUI();
-                    if (window.app) await window.app.loadUserPortfolioDashboard();
+                    window.location.reload();
                 } else {
                     errorDiv.textContent = result.error;
                     errorDiv.style.display = 'block';
@@ -388,9 +386,7 @@ class AuthManager {
 
                 const result = await this.register(username, email, password, firstName, lastName);
                 if (result.success) {
-                    this.hideModal();
-                    this.initAuthUI();
-                    if (window.app) await window.app.loadUserPortfolioDashboard();
+                    window.location.reload();
                 } else {
                     errorDiv.textContent = result.error;
                     errorDiv.style.display = 'block';

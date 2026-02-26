@@ -224,7 +224,16 @@ class AlphaVelocityApp {
             // Render portfolio list first, then load holdings for the selected portfolio
             await this.portfolioManager.renderPortfolioDashboard('portfolio-dashboard');
 
-            const selectedId = this.portfolioManager.getSelectedPortfolioId();
+            // Use saved selection, or fall back to first portfolio in the list
+            let selectedId = this.portfolioManager.getSelectedPortfolioId();
+            if (!selectedId) {
+                const firstRow = document.querySelector('#portfolio-dashboard .portfolio-row');
+                if (firstRow) {
+                    selectedId = parseInt(firstRow.dataset.portfolioId);
+                    localStorage.setItem('selected_portfolio_id', selectedId);
+                    firstRow.classList.add('selected');
+                }
+            }
             if (selectedId) {
                 await this.loadSelectedPortfolioHoldings(selectedId);
             }

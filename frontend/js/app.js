@@ -221,17 +221,13 @@ class AlphaVelocityApp {
             section.style.display = 'block';
             if (defaultSection) defaultSection.style.display = 'none';
 
-            // Load portfolio cards and holdings detail in parallel
-            const tasks = [
-                this.portfolioManager.renderPortfolioDashboard('portfolio-dashboard')
-            ];
+            // Render portfolio list first, then load holdings for the selected portfolio
+            await this.portfolioManager.renderPortfolioDashboard('portfolio-dashboard');
 
             const selectedId = this.portfolioManager.getSelectedPortfolioId();
             if (selectedId) {
-                tasks.push(this.loadSelectedPortfolioHoldings(selectedId));
+                await this.loadSelectedPortfolioHoldings(selectedId);
             }
-
-            await Promise.all(tasks);
         } catch (error) {
             console.error('Error loading user portfolio dashboard:', error);
             if (section) {

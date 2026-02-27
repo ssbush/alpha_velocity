@@ -52,18 +52,31 @@ class MomentumCacheService:
 
         # --- Tier 1: In-memory cache ---
         remaining = self._check_memory_cache(remaining, data)
-        if not remaining:
+        if not remaining and self.db_config is None:
             return data
 
         # --- Tier 2: PostgreSQL ---
         if self.db_config is not None:
             remaining = self._check_database(remaining, data)
-            if not remaining:
+            if not remaining and not data:
                 return data
 
         # --- Tier 3: Live yfinance ---
         if remaining:
             await self._compute_live(remaining, data)
+
+        # Always refresh prices from DB so stale in-memory prices don't persist.
+        # Momentum scores can safely be cached for 24h; prices cannot — the engine
+        # may cache a pre-market price that lags the actual closing price by a day.
+        if self.db_config is not None and data:
+            try:
+                with self.db_config.get_session_context() as session:
+                    db_prices = self._query_latest_prices(session, list(data.keys()))
+                for ticker, price in db_prices.items():
+                    if ticker in data:
+                        data[ticker]["current_price"] = float(price)
+            except Exception:
+                pass  # Keep whatever price was already in data
 
         return data
 

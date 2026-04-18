@@ -100,6 +100,7 @@ class CategoryService:
                         'rating': score_data['rating']
                     })
 
+                ticker_details.sort(key=lambda x: x['momentum_score'], reverse=True)
                 result.append({
                     'id': cat_data['id'],
                     'name': cat_data['name'],
@@ -165,6 +166,7 @@ class CategoryService:
                         'rating': 'N/A'
                     })
 
+            ticker_details.sort(key=lambda x: x['momentum_score'], reverse=True)
             return {
                 'id': category_id,
                 'name': name,

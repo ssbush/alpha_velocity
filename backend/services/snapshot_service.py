@@ -6,11 +6,15 @@ transactions against price_history. Used for the Dashboard value chart and
 future rotation-signal engine.
 
 Transaction conventions (from user_portfolio_service.py):
-  BUY    — shares > 0, adds to position
-  SELL   — shares < 0 (stored negative), reduces position
-  SPLIT  — shares = split ratio (e.g. 4.0 for 4:1), multiplies position
-  REINVEST — shares > 0, treated like BUY
+  BUY      — shares > 0, adds to position; reduces cash
+  SELL     — shares < 0 (stored negative), reduces position; increases cash
+  SPLIT    — shares = split ratio (e.g. 4.0 for 4:1), multiplies position
+  REINVEST — shares > 0, treated like BUY; reduces cash
   DIVIDEND — no share change, ignored
+
+Cash transactions (cash_transactions table):
+  DEPOSIT    — increases cash_balance
+  WITHDRAWAL — decreases cash_balance
 """
 
 import logging
@@ -38,7 +42,7 @@ class SnapshotService:
         have a snapshot.  Returns the number of new snapshots written.
         """
         from ..models.database import (
-            Transaction, PriceHistory, SecurityMaster,
+            Transaction, CashTransaction, PriceHistory, SecurityMaster,
             Portfolio, PerformanceSnapshot,
         )
         from sqlalchemy import func
@@ -59,6 +63,14 @@ class SnapshotService:
             if not transactions:
                 logger.info("Portfolio %d has no transactions — nothing to backfill", portfolio_id)
                 return 0
+
+            # All cash transactions for historical cash balance replay
+            cash_transactions = (
+                session.query(CashTransaction)
+                .filter(CashTransaction.portfolio_id == portfolio_id)
+                .order_by(CashTransaction.transaction_date, CashTransaction.id)
+                .all()
+            )
 
             # Security IDs involved in this portfolio
             security_ids = list({t.security_id for t in transactions})
@@ -111,6 +123,11 @@ class SnapshotService:
                 total_value, total_cost, n_positions = self._compute_value(
                     shares_map, cost_map, prices_by_security, snap_date
                 )
+
+                # Add historical cash balance (net of all cash txns up to snap_date
+                # plus net cash from security transactions up to snap_date)
+                cash_value = self._cash_at_date(transactions, cash_transactions, snap_date)
+                total_value += cash_value
 
                 if total_value <= 0:
                     continue  # no priced positions on this date
@@ -175,6 +192,9 @@ class SnapshotService:
                 total_cost += float(holding.total_cost_basis or 0)
                 n_positions += 1
 
+            # Include current cash balance in total portfolio value
+            total_value += float(portfolio.cash_balance or 0)
+
             if total_value <= 0:
                 return False
 
@@ -230,7 +250,7 @@ class SnapshotService:
         from datetime import date, timedelta
 
         if benchmarks is None:
-            benchmarks = ['SPY', 'QQQ']
+            benchmarks = ['SPY', 'QQQ', 'MTUM', 'AIQ']
 
         cutoff = date.today() - timedelta(days=days)
 
@@ -333,7 +353,7 @@ class SnapshotService:
         from collections import defaultdict
 
         if benchmarks is None:
-            benchmarks = ['SPY', 'QQQ']
+            benchmarks = ['SPY', 'QQQ', 'MTUM', 'AIQ']
 
         cutoff = date.today() - timedelta(days=days)
 
@@ -444,9 +464,272 @@ class SnapshotService:
             "benchmarks": benchmark_data,
         }
 
+    def get_drawdown_history(
+        self,
+        portfolio_id: int,
+        days: int = 180,
+        benchmarks: Optional[List[str]] = None,
+    ):
+        """
+        Compute drawdown series (%) for portfolio and benchmarks.
+        Drawdown at each point = (current / running_peak - 1) * 100, always <= 0.
+
+        Returns:
+            {labels, portfolio, benchmarks: {TICKER: [pct]}}
+        """
+        from ..models.database import PerformanceSnapshot, PriceHistory, SecurityMaster
+        from datetime import date, timedelta
+
+        if benchmarks is None:
+            benchmarks = ['SPY', 'QQQ', 'MTUM', 'AIQ']
+
+        cutoff = date.today() - timedelta(days=days)
+
+        with self.db_config.get_session_context() as session:
+            snap_rows = (
+                session.query(
+                    PerformanceSnapshot.snapshot_date,
+                    PerformanceSnapshot.total_value,
+                )
+                .filter(
+                    PerformanceSnapshot.portfolio_id == portfolio_id,
+                    PerformanceSnapshot.snapshot_date >= cutoff,
+                )
+                .order_by(PerformanceSnapshot.snapshot_date)
+                .all()
+            )
+
+            if not snap_rows:
+                return {"labels": [], "portfolio": [], "benchmarks": {}}
+
+            labels = [r.snapshot_date.isoformat() for r in snap_rows]
+            values = [float(r.total_value) for r in snap_rows]
+            first_date = snap_rows[0].snapshot_date
+
+            # Portfolio drawdown
+            peak = values[0]
+            portfolio_dd = []
+            for v in values:
+                if v > peak:
+                    peak = v
+                portfolio_dd.append(round((v / peak - 1.0) * 100, 4))
+
+            # Benchmark drawdowns
+            benchmark_data: Dict[str, List[Optional[float]]] = {}
+            snap_dates = [r.snapshot_date for r in snap_rows]
+
+            for ticker in benchmarks:
+                sm = session.query(SecurityMaster).filter(
+                    SecurityMaster.ticker == ticker
+                ).first()
+                if not sm:
+                    continue
+
+                price_rows = (
+                    session.query(PriceHistory.price_date, PriceHistory.close_price)
+                    .filter(
+                        PriceHistory.security_id == sm.id,
+                        PriceHistory.price_date >= cutoff,
+                    )
+                    .order_by(PriceHistory.price_date)
+                    .all()
+                )
+                prices_by_date = {r.price_date: float(r.close_price) for r in price_rows}
+
+                sorted_bench = sorted(prices_by_date.items())
+                bench_idx = 0
+                last_price = None
+                bench_peak = None
+                dd_series = []
+
+                for snap_date in snap_dates:
+                    while bench_idx < len(sorted_bench) and sorted_bench[bench_idx][0] <= snap_date:
+                        last_price = sorted_bench[bench_idx][1]
+                        bench_idx += 1
+                    if last_price is not None:
+                        if bench_peak is None or last_price > bench_peak:
+                            bench_peak = last_price
+                        dd_series.append(round((last_price / bench_peak - 1.0) * 100, 4))
+                    else:
+                        dd_series.append(None)
+
+                benchmark_data[ticker] = dd_series
+
+        return {
+            "labels": labels,
+            "portfolio": portfolio_dd,
+            "benchmarks": benchmark_data,
+        }
+
+    def get_composite_momentum(
+        self,
+        portfolio_id: int,
+        days: int = 90,
+    ):
+        """
+        Compute value-weighted composite momentum score for the portfolio.
+
+        For each date where momentum scores exist, weights each holding's score
+        by its market value (shares × close price on that date). Holdings with
+        no score on a given date are excluded from both numerator and denominator.
+
+        Returns:
+            {
+                current_score: float,
+                current_rating: str,
+                scored_holdings: int,   # number of holdings with scores today
+                total_holdings: int,
+                history: [{date, score}]  # oldest first
+            }
+        """
+        from ..models.database import (
+            Holding, MomentumScore, PriceHistory, SecurityMaster
+        )
+        from datetime import date as date_type, timedelta
+
+        cutoff = date_type.today() - timedelta(days=days)
+
+        def _rating(score: float) -> str:
+            if score >= 75: return 'Strong'
+            if score >= 60: return 'Moderate'
+            if score >= 45: return 'Mixed'
+            return 'Weak'
+
+        with self.db_config.get_session_context() as session:
+            holdings = session.query(Holding).filter(
+                Holding.portfolio_id == portfolio_id
+            ).all()
+
+            if not holdings:
+                return {"current_score": None, "current_rating": None,
+                        "scored_holdings": 0, "total_holdings": 0, "history": []}
+
+            total_holdings = len(holdings)
+            security_ids = [h.security_id for h in holdings]
+            shares_map = {h.security_id: float(h.shares) for h in holdings}
+
+            # All score dates in range for these securities
+            score_rows = (
+                session.query(
+                    MomentumScore.score_date,
+                    MomentumScore.security_id,
+                    MomentumScore.composite_score,
+                )
+                .filter(
+                    MomentumScore.security_id.in_(security_ids),
+                    MomentumScore.score_date >= cutoff,
+                    MomentumScore.composite_score > 0,  # exclude unscored (e.g. SWVXX=0)
+                )
+                .all()
+            )
+
+            # Build {date: {security_id: score}}
+            from collections import defaultdict
+            scores_by_date: Dict = defaultdict(dict)
+            for row in score_rows:
+                scores_by_date[row.score_date][row.security_id] = float(row.composite_score)
+
+            # Latest prices per security (for value weighting)
+            price_rows = (
+                session.query(PriceHistory.security_id, PriceHistory.price_date, PriceHistory.close_price)
+                .filter(
+                    PriceHistory.security_id.in_(security_ids),
+                    PriceHistory.price_date >= cutoff,
+                )
+                .order_by(PriceHistory.price_date)
+                .all()
+            )
+
+            # {security_id: sorted [(date, price)]}
+            prices_by_sec: Dict = defaultdict(list)
+            for row in price_rows:
+                prices_by_sec[row.security_id].append((row.price_date, float(row.close_price)))
+
+            def _price_on(security_id, target_date):
+                """Most recent price on or before target_date."""
+                entries = prices_by_sec.get(security_id, [])
+                price = None
+                for d, p in entries:
+                    if d <= target_date:
+                        price = p
+                    else:
+                        break
+                return price
+
+            # Compute weighted score per date
+            history = []
+            for score_date in sorted(scores_by_date.keys()):
+                day_scores = scores_by_date[score_date]
+                weighted_sum = 0.0
+                total_value = 0.0
+                for sec_id, score in day_scores.items():
+                    price = _price_on(sec_id, score_date)
+                    if price is None:
+                        continue
+                    value = shares_map.get(sec_id, 0) * price
+                    weighted_sum += score * value
+                    total_value += value
+                if total_value > 0:
+                    composite = round(weighted_sum / total_value, 2)
+                    history.append({"date": score_date.isoformat(), "score": composite})
+
+            if not history:
+                return {"current_score": None, "current_rating": None,
+                        "scored_holdings": 0, "total_holdings": total_holdings, "history": []}
+
+            latest = history[-1]
+            current_score = latest["score"]
+            latest_date = date_type.fromisoformat(latest["date"])
+            scored_holdings = len(scores_by_date.get(latest_date, {}))
+
+        return {
+            "current_score": current_score,
+            "current_rating": _rating(current_score),
+            "scored_holdings": scored_holdings,
+            "total_holdings": total_holdings,
+            "history": history,
+        }
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _cash_at_date(
+        self, transactions, cash_transactions, as_of: date
+    ) -> float:
+        """
+        Compute the cash balance as of `as_of` by replaying all cash-affecting events:
+          - DEPOSIT / WITHDRAWAL from cash_transactions table
+          - BUY / REINVEST reduce cash by total_amount (shares * price + fees)
+          - SELL increases cash by proceeds (shares * price - fees) via total_amount
+
+        IMPORTANT: Both `transactions` and `cash_transactions` must be sorted ascending
+        by transaction_date. The early-break optimisation relies on this ordering.
+        Callers must ensure ORDER BY transaction_date before passing lists in.
+        """
+        cash = 0.0
+
+        for txn in transactions:
+            if txn.transaction_date > as_of:
+                break
+            t_type = txn.transaction_type
+            if t_type in ('BUY', 'REINVEST'):
+                cash -= float(txn.total_amount)
+            elif t_type == 'SELL':
+                price = float(txn.price_per_share) if txn.price_per_share else 0.0
+                fees = float(txn.fees) if txn.fees else 0.0
+                sold_shares = abs(float(txn.shares))
+                cash += sold_shares * price - fees
+
+        for ctxn in cash_transactions:
+            if ctxn.transaction_date > as_of:
+                break
+            if ctxn.transaction_type == 'DEPOSIT':
+                cash += float(ctxn.amount)
+            elif ctxn.transaction_type == 'WITHDRAWAL':
+                cash -= float(ctxn.amount)
+
+        return cash
 
     def _shares_at_date(
         self, transactions, as_of: date

@@ -18,6 +18,8 @@ from .cache_admin import router as cache_admin_router
 from .metrics import router as metrics_router
 from .historical import router as historical_router
 from .errors import router as errors_router
+from .options import router as options_router
+from .analytics import router as analytics_router
 
 # Create v1 API router
 api_router = APIRouter()
@@ -34,6 +36,8 @@ api_router.include_router(cache_router, prefix="/cache", tags=["cache"])
 api_router.include_router(cache_admin_router, prefix="/cache", tags=["cache-admin"])
 api_router.include_router(metrics_router, prefix="/metrics", tags=["metrics"])
 api_router.include_router(historical_router, prefix="/historical", tags=["historical"])
+api_router.include_router(options_router, prefix="/options", tags=["options"])
+api_router.include_router(analytics_router, prefix="/analytics", tags=["analytics"])
 
 # Auth, user, and transaction routers will be added when database is available
 try:
@@ -49,3 +53,9 @@ try:
     api_router.include_router(transactions_router, prefix="/user", tags=["user-transactions"])
 except ImportError:
     pass  # Transaction endpoints not available without database
+
+try:
+    from .portfolio_watchlist import router as portfolio_watchlist_router
+    api_router.include_router(portfolio_watchlist_router, prefix="/user/portfolios", tags=["watchlist"])
+except ImportError:
+    pass

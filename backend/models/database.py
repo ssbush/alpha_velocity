@@ -46,6 +46,7 @@ class Portfolio(Base):
     user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
     name = Column(String(100), nullable=False)
     description = Column(Text)
+    cash_balance = Column(Numeric(15, 2), nullable=False, default=Decimal('0.00'))
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=func.now(), nullable=False)
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), nullable=False)
@@ -54,10 +55,12 @@ class Portfolio(Base):
     user = relationship("User", back_populates="portfolios")
     holdings = relationship("Holding", back_populates="portfolio", cascade="all, delete-orphan")
     transactions = relationship("Transaction", back_populates="portfolio", cascade="all, delete-orphan")
+    cash_transactions = relationship("CashTransaction", back_populates="portfolio", cascade="all, delete-orphan")
     performance_snapshots = relationship("PerformanceSnapshot", back_populates="portfolio", cascade="all, delete-orphan")
     comparisons_as_base = relationship("PortfolioComparison", foreign_keys="PortfolioComparison.base_portfolio_id", back_populates="base_portfolio")
     comparisons_as_compared = relationship("PortfolioComparison", foreign_keys="PortfolioComparison.compared_portfolio_id", back_populates="compared_portfolio")
     category_targets = relationship("PortfolioCategoryTarget", back_populates="portfolio", cascade="all, delete-orphan")
+    watchlist_tickers = relationship("WatchlistTicker", back_populates="portfolio", cascade="all, delete-orphan")
 
     __table_args__ = (
         UniqueConstraint('user_id', 'name', name='unique_portfolio_name_per_user'),
@@ -87,6 +90,7 @@ class SecurityMaster(Base):
     transactions = relationship("Transaction", back_populates="security")
     momentum_scores = relationship("MomentumScore", back_populates="security")
     price_history = relationship("PriceHistory", back_populates="security")
+    iv_history = relationship("IVHistory", back_populates="security")
 
     __table_args__ = (
         Index('idx_security_ticker', 'ticker'),
@@ -391,3 +395,73 @@ class PortfolioComparison(Base):
 
     def __repr__(self):
         return f"<PortfolioComparison(base={self.base_portfolio_id}, date={self.comparison_date}, alpha={self.alpha})>"
+
+
+class WatchlistTicker(Base):
+    """Portfolio-scoped manually curated watchlist"""
+    __tablename__ = 'watchlist_tickers'
+
+    id = Column(Integer, primary_key=True)
+    portfolio_id = Column(Integer, ForeignKey('portfolios.id', ondelete='CASCADE'), nullable=False)
+    ticker = Column(String(20), nullable=False)
+    added_at = Column(DateTime, default=func.now(), nullable=False)
+
+    # Relationships
+    portfolio = relationship("Portfolio", back_populates="watchlist_tickers")
+
+    __table_args__ = (
+        UniqueConstraint('portfolio_id', 'ticker', name='unique_watchlist_ticker_per_portfolio'),
+        Index('idx_watchlist_portfolio', 'portfolio_id'),
+    )
+
+    def __repr__(self):
+        return f"<WatchlistTicker(portfolio_id={self.portfolio_id}, ticker='{self.ticker}')>"
+
+
+class IVHistory(Base):
+    """Historical implied volatility snapshots for IVR calculation"""
+    __tablename__ = 'iv_history'
+
+    id = Column(Integer, primary_key=True)
+    security_id = Column(Integer, ForeignKey('security_master.id'), nullable=False)
+    recorded_at = Column(DateTime, nullable=False)  # Timestamp of snapshot
+    iv = Column(Numeric(8, 4), nullable=False)       # Annualized IV (e.g. 0.65 = 65%)
+    expiry_date = Column(Date)                        # Option expiry used for calculation
+
+    # Relationships
+    security = relationship("SecurityMaster", back_populates="iv_history")
+
+    __table_args__ = (
+        Index('idx_iv_history_security_recorded', 'security_id', 'recorded_at'),
+    )
+
+    def __repr__(self):
+        return f"<IVHistory(security_id={self.security_id}, iv={self.iv}, recorded_at={self.recorded_at})>"
+
+
+class CashTransaction(Base):
+    """Cash deposits and withdrawals for a portfolio"""
+    __tablename__ = 'cash_transactions'
+
+    id = Column(Integer, primary_key=True)
+    portfolio_id = Column(Integer, ForeignKey('portfolios.id', ondelete='CASCADE'), nullable=False)
+    transaction_type = Column(String(20), nullable=False)   # DEPOSIT | WITHDRAWAL
+    transaction_date = Column(Date, nullable=False)
+    amount = Column(Numeric(15, 2), nullable=False)         # Always positive
+    notes = Column(Text)
+    created_at = Column(DateTime, default=func.now(), nullable=False)
+
+    # Relationships
+    portfolio = relationship("Portfolio", back_populates="cash_transactions")
+
+    __table_args__ = (
+        Index('idx_cash_txn_portfolio_date', 'portfolio_id', 'transaction_date'),
+        CheckConstraint(
+            "transaction_type IN ('DEPOSIT', 'WITHDRAWAL')",
+            name='check_valid_cash_transaction_type'
+        ),
+        CheckConstraint('amount > 0', name='check_cash_amount_positive'),
+    )
+
+    def __repr__(self):
+        return f"<CashTransaction(portfolio_id={self.portfolio_id}, type='{self.transaction_type}', amount={self.amount}, date={self.transaction_date})>"

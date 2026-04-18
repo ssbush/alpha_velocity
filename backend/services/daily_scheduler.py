@@ -19,11 +19,12 @@ from .daily_cache_service import DailyCacheService
 class DailyScheduler:
     """Scheduler for daily cache updates"""
 
-    def __init__(self, momentum_engine, portfolio_tickers: List[str], price_service=None, db_config=None):
+    def __init__(self, momentum_engine, portfolio_tickers: List[str], price_service=None, db_config=None, iv_service=None):
         self.momentum_engine = momentum_engine
         self.portfolio_tickers = portfolio_tickers
         self.cache_service = DailyCacheService(price_service=price_service)
         self.db_config = db_config
+        self.iv_service = iv_service
         self.is_running = False
         self.scheduler_thread = None
 
@@ -50,21 +51,78 @@ class DailyScheduler:
 
             if success:
                 logger.info("Daily cache update completed successfully")
+                self._record_snapshots()
+                self._record_iv_snapshots()
             else:
                 logger.error("Daily cache update failed")
 
         except Exception as e:
             logger.error("Error during daily cache update: %s", e)
 
+    def _record_snapshots(self):
+        """Record daily performance snapshots for all portfolios after price update."""
+        if not self.db_config:
+            logger.warning("No db_config available — skipping snapshot recording")
+            return
+        try:
+            from .snapshot_service import SnapshotService
+            written = SnapshotService(self.db_config).record_all_daily()
+            logger.info("Recorded %d portfolio snapshot(s)", written)
+        except Exception as e:
+            logger.error("Failed to record daily snapshots: %s", e)
+
+    def _record_iv_snapshots(self):
+        """Record end-of-day IV snapshots for all portfolio holdings and watchlist tickers."""
+        if not self.iv_service:
+            return
+
+        # Start from the static config list
+        tickers = set(self.portfolio_tickers)
+
+        # Add live holdings + watchlist from DB
+        if self.db_config:
+            try:
+                from ..models.database import Holding, SecurityMaster, WatchlistTicker
+                with self.db_config.get_session_context() as session:
+                    holding_rows = (
+                        session.query(SecurityMaster.ticker)
+                        .join(Holding, Holding.security_id == SecurityMaster.id)
+                        .distinct()
+                        .all()
+                    )
+                    tickers.update(r[0] for r in holding_rows)
+
+                    watchlist_rows = session.query(WatchlistTicker.ticker).distinct().all()
+                    tickers.update(r[0] for r in watchlist_rows)
+            except Exception as e:
+                logger.warning("Could not load DB tickers for IV snapshots: %s", e)
+
+        logger.info("Recording IV snapshots for %d tickers (holdings + watchlist)", len(tickers))
+        success, failed = 0, 0
+        for ticker in sorted(tickers):
+            try:
+                self.iv_service.get_iv_data(ticker)  # fetches + persists (idempotent per day)
+                success += 1
+            except Exception as e:
+                logger.warning("IV snapshot failed for %s: %s", ticker, e)
+                failed += 1
+        logger.info("IV snapshots recorded: %d ok, %d failed", success, failed)
+
     def run_manual_update(self, force: bool = False):
         """Manually trigger cache update"""
         logger.info("Running manual cache update")
 
-        return self.cache_service.update_daily_cache(
+        success = self.cache_service.update_daily_cache(
             tickers=self.portfolio_tickers,
             momentum_engine=self.momentum_engine,
             force_update=force
         )
+
+        if success:
+            self._record_snapshots()
+            self._record_iv_snapshots()
+
+        return success
 
     def start_scheduler(self):
         """Start the background scheduler"""
@@ -177,10 +235,10 @@ class MarketHoursHelper:
 daily_scheduler: DailyScheduler = None
 
 
-def initialize_scheduler(momentum_engine, portfolio_tickers: List[str], price_service=None, db_config=None):
+def initialize_scheduler(momentum_engine, portfolio_tickers: List[str], price_service=None, db_config=None, iv_service=None):
     """Initialize the global scheduler"""
     global daily_scheduler
-    daily_scheduler = DailyScheduler(momentum_engine, portfolio_tickers, price_service=price_service, db_config=db_config)
+    daily_scheduler = DailyScheduler(momentum_engine, portfolio_tickers, price_service=price_service, db_config=db_config, iv_service=iv_service)
     return daily_scheduler
 
 

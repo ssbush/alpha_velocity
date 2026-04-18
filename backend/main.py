@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status, Request, Response
+from fastapi import FastAPI, HTTPException, Depends, status, Request, Response, UploadFile, File
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -21,7 +21,7 @@ from .config.rate_limit_config import (
 from .config.account_lockout_config import login_attempt_tracker, log_lockout_config
 from .config.token_rotation_config import refresh_token_tracker, log_token_rotation_config
 from .config.csrf_config import log_csrf_config
-from .auth import get_optional_user_id
+from .auth import get_optional_user_id, get_current_user_id
 
 # Setup logging based on environment
 setup_logging(
@@ -38,6 +38,7 @@ validate_environment()
 from .services.price_service import PriceService, set_price_service
 from .services.momentum_engine import MomentumEngine
 from .services.portfolio_service import PortfolioService, set_portfolio_service
+from .services.iv_service import IVService, set_iv_service
 from .services.comparison_service import ComparisonService
 from .services.daily_scheduler import initialize_scheduler, get_scheduler
 from .services.category_service import CategoryService
@@ -201,6 +202,10 @@ if DATABASE_AVAILABLE:
     portfolio_service.db_config = db_config
     portfolio_service.momentum_cache_service = _momentum_cache_svc
 
+    # Wire DB into IV service
+    _iv_svc = IVService(db_config=db_config)
+    set_iv_service(_iv_svc)
+
 # Register the fully-wired singleton so v1 modules can use it
 set_portfolio_service(portfolio_service)
 
@@ -227,10 +232,25 @@ def get_all_portfolio_tickers() -> List[str]:
 
     return list(all_tickers)
 
+# Backfill any missing prices and snapshots from days the server was down
+if DATABASE_AVAILABLE:
+    try:
+        import threading
+        import importlib.util, os as _os
+        _script_path = _os.path.join(_os.path.dirname(_os.path.dirname(__file__)), "scripts", "backfill_prices_and_snapshots.py")
+        _spec = importlib.util.spec_from_file_location("backfill_prices_and_snapshots", _script_path)
+        _backfill_mod = importlib.util.module_from_spec(_spec)
+        _spec.loader.exec_module(_backfill_mod)
+        threading.Thread(target=_backfill_mod.run, daemon=True, kwargs={"days": 30}).start()
+        logger.info("Startup price/snapshot backfill running in background")
+    except Exception as _e:
+        logger.warning("Startup backfill failed to launch: %s", _e)
+
 # Initialize daily cache scheduler
 PORTFOLIO_TICKERS = get_all_portfolio_tickers()
 _scheduler_db_config = db_config if DATABASE_AVAILABLE else None
-daily_scheduler = initialize_scheduler(momentum_engine, PORTFOLIO_TICKERS, price_service=price_service, db_config=_scheduler_db_config)
+_scheduler_iv_service = _iv_svc if DATABASE_AVAILABLE else None
+daily_scheduler = initialize_scheduler(momentum_engine, PORTFOLIO_TICKERS, price_service=price_service, db_config=_scheduler_db_config, iv_service=_scheduler_iv_service)
 daily_scheduler.start_scheduler()
 
 logger.info(
@@ -1038,8 +1058,8 @@ async def get_batch_momentum(tickers: str) -> dict:
         ticker_list = [t.strip().upper() for t in tickers.split(",") if t.strip()]
         if not ticker_list:
             raise HTTPException(status_code=400, detail="No tickers provided")
-        if len(ticker_list) > 100:
-            raise HTTPException(status_code=400, detail="Maximum 100 tickers per request")
+        if len(ticker_list) > 200:
+            raise HTTPException(status_code=400, detail="Maximum 200 tickers per request")
 
         from .services.momentum_cache_service import MomentumCacheService
 
@@ -1088,7 +1108,10 @@ async def get_database_status() -> dict:
 
 @app.post("/database/migrate")
 @limiter.limit(RateLimits.BULK)
-async def run_database_migration(request: Request) -> dict:
+async def run_database_migration(
+    request: Request,
+    user_id: int = Depends(get_current_user_id),
+) -> dict:
     """Run database migration from JSON files"""
     if not DATABASE_AVAILABLE:
         raise HTTPException(status_code=503, detail="Database service not available")
@@ -1276,6 +1299,38 @@ async def get_portfolio_return_history(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching return history: {str(e)}")
+
+@app.get("/database/portfolio/{portfolio_id}/composite-momentum")
+async def get_portfolio_composite_momentum(
+    portfolio_id: int,
+    days: int = 30,
+    user_id: Optional[int] = Depends(get_optional_user_id)
+) -> dict:
+    """Value-weighted composite momentum score for the portfolio."""
+    try:
+        from .database.config import db_config
+        from .services.snapshot_service import SnapshotService
+        return SnapshotService(db_config).get_composite_momentum(portfolio_id, days)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching composite momentum: {str(e)}")
+
+@app.get("/database/portfolio/{portfolio_id}/drawdown-history")
+async def get_portfolio_drawdown_history(
+    portfolio_id: int,
+    days: int = 180,
+    user_id: Optional[int] = Depends(get_optional_user_id)
+) -> dict:
+    """Drawdown series (%) for portfolio and benchmarks."""
+    try:
+        from .database.config import db_config
+        from .services.snapshot_service import SnapshotService
+        return SnapshotService(db_config).get_drawdown_history(portfolio_id, days)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching drawdown history: {str(e)}")
 
 @app.post("/database/portfolio/{portfolio_id}/backfill-snapshots")
 async def backfill_portfolio_snapshots(
@@ -1741,7 +1796,8 @@ async def get_portfolio_holdings_endpoint(
     service = get_user_portfolio_service()
     try:
         holdings = service.get_portfolio_holdings(portfolio_id, user_id)
-        return {"holdings": holdings}
+        cash_balance = service.get_cash_balance(portfolio_id, user_id)
+        return {"holdings": holdings, "cash_balance": cash_balance}
     except HTTPException:
         raise
     except Exception as e:
@@ -1826,6 +1882,7 @@ async def add_transaction_endpoint(
     transaction_date: str,
     fees: float = 0,
     notes: Optional[str] = None,
+    dividend_amount: Optional[float] = None,
     user_id: int = Depends(get_current_user_id)
 ) -> dict:
     """Add a transaction to the portfolio"""
@@ -1844,8 +1901,42 @@ async def add_transaction_endpoint(
             Decimal(str(price_per_share)),
             txn_date,
             Decimal(str(fees)),
-            notes
+            notes,
+            Decimal(str(dividend_amount)) if dividend_amount else None
         )
+        # Sync watchlist on BUY/SELL
+        if DATABASE_AVAILABLE:
+            try:
+                from .models.database import WatchlistTicker, Holding, SecurityMaster as _SM
+                with db_config.get_session_context() as wl_session:
+                    if transaction_type.upper() == 'BUY':
+                        # Promote off watchlist
+                        wl_entry = wl_session.query(WatchlistTicker).filter_by(
+                            portfolio_id=portfolio_id, ticker=ticker.upper()
+                        ).first()
+                        if wl_entry:
+                            wl_session.delete(wl_entry)
+                    elif transaction_type.upper() == 'SELL':
+                        # Add back to watchlist if position fully closed
+                        still_held = (
+                            wl_session.query(Holding)
+                            .join(_SM, _SM.id == Holding.security_id)
+                            .filter(
+                                Holding.portfolio_id == portfolio_id,
+                                _SM.ticker == ticker.upper()
+                            ).first()
+                        )
+                        if not still_held:
+                            already_watching = wl_session.query(WatchlistTicker).filter_by(
+                                portfolio_id=portfolio_id, ticker=ticker.upper()
+                            ).first()
+                            if not already_watching:
+                                wl_session.add(WatchlistTicker(
+                                    portfolio_id=portfolio_id, ticker=ticker.upper()
+                                ))
+            except Exception as _e:
+                logger.warning("Could not sync watchlist for %s: %s", ticker, _e)
+
         return {
             "message": "Transaction added successfully",
             "transaction": {
@@ -1861,6 +1952,217 @@ async def add_transaction_endpoint(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error adding transaction: {str(e)}")
+
+@app.post("/user/portfolios/{portfolio_id}/cash-transactions")
+async def add_cash_transaction_endpoint(
+    portfolio_id: int,
+    transaction_type: str,
+    amount: float,
+    transaction_date: str,
+    notes: Optional[str] = None,
+    user_id: int = Depends(get_current_user_id)
+) -> dict:
+    """Record a cash deposit or withdrawal for a portfolio."""
+    service = get_user_portfolio_service()
+    try:
+        from decimal import Decimal
+        from datetime import datetime
+        txn_date = datetime.strptime(transaction_date, "%Y-%m-%d").date()
+        cash_txn = service.add_cash_transaction(
+            portfolio_id,
+            user_id,
+            transaction_type,
+            Decimal(str(amount)),
+            txn_date,
+            notes,
+        )
+        return {
+            "message": "Cash transaction recorded successfully",
+            "cash_transaction": {
+                "id": cash_txn.id,
+                "transaction_type": cash_txn.transaction_type,
+                "amount": float(cash_txn.amount),
+                "transaction_date": cash_txn.transaction_date.isoformat(),
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error recording cash transaction: {str(e)}")
+
+
+@app.get("/user/portfolios/{portfolio_id}/cash-transactions")
+async def get_cash_transactions_endpoint(
+    portfolio_id: int,
+    limit: int = 100,
+    user_id: int = Depends(get_current_user_id)
+) -> dict:
+    """Get cash deposit/withdrawal history for a portfolio."""
+    service = get_user_portfolio_service()
+    try:
+        transactions = service.get_cash_transactions(portfolio_id, user_id, limit)
+        cash_balance = service.get_cash_balance(portfolio_id, user_id)
+        return {"cash_balance": cash_balance, "transactions": transactions}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching cash transactions: {str(e)}")
+
+
+@app.post("/user/portfolios/{portfolio_id}/transactions/upload")
+async def upload_transactions_endpoint(
+    portfolio_id: int,
+    file: UploadFile = File(...),
+    user_id: int = Depends(get_current_user_id)
+) -> dict:
+    """Import transactions from a brokerage JSON or CSV export file."""
+    import json
+    import csv
+    import io
+    from decimal import Decimal, InvalidOperation
+    from datetime import datetime
+
+    filename = file.filename or ""
+    if not filename.endswith('.json') and not filename.endswith('.csv'):
+        raise HTTPException(status_code=400, detail="Only .json and .csv files are supported")
+
+    ACTION_MAP = {
+        "buy": "BUY",
+        "sell": "SELL",
+        "cash dividend": "DIVIDEND",
+    }
+
+    def parse_amount(value: str) -> Decimal:
+        """Strip $, commas, and leading minus sign, return absolute value."""
+        cleaned = value.replace("$", "").replace(",", "").replace("-", "").strip()
+        return Decimal(cleaned)
+
+    def parse_row(symbol: str, action: str, qty_str: str, price_str: str,
+                  date_str: str, fees_str: str, date_fmt: str) -> Optional[dict]:
+        """Validate and parse a single transaction row. Returns None to skip."""
+        internal_type = ACTION_MAP.get(action.strip().lower())
+        if not internal_type:
+            return None  # skip unknown action types
+
+        symbol = symbol.strip().upper()
+        if not symbol:
+            raise ValueError("Missing symbol")
+
+        txn_date = datetime.strptime(date_str.strip(), date_fmt).date()
+
+        if internal_type == "DIVIDEND":
+            return {"type": "DIVIDEND", "symbol": symbol, "date": txn_date,
+                    "shares": Decimal("0"), "price": Decimal("0"),
+                    "fees": parse_amount(price_str) if price_str.strip() else Decimal("0")}
+
+        if not qty_str.strip() or not price_str.strip():
+            raise ValueError("Missing quantity or price")
+
+        return {"type": internal_type, "symbol": symbol, "date": txn_date,
+                "shares": parse_amount(qty_str),
+                "price": parse_amount(price_str),
+                "fees": parse_amount(fees_str) if fees_str.strip() else Decimal("0")}
+
+    contents = await file.read()
+    service = get_user_portfolio_service()
+    imported, skipped, errors = 0, 0, []
+
+    if filename.endswith('.json'):
+        try:
+            data = json.loads(contents)
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON file: {str(e)}")
+
+        transactions = data.get("BrokerageTransactions", [])
+        if not isinstance(transactions, list):
+            raise HTTPException(status_code=400, detail="Invalid file format: missing BrokerageTransactions array")
+
+        for txn in transactions:
+            action = txn.get("Action", "")
+            symbol = txn.get("Symbol", "")
+            try:
+                row = parse_row(
+                    symbol, action,
+                    txn.get("Quantity", ""), txn.get("Price", ""),
+                    txn.get("Date", ""), txn.get("Fees & Comm", ""),
+                    "%m/%d/%Y"
+                )
+            except ValueError as e:
+                errors.append({"symbol": symbol.strip().upper(), "action": action, "reason": str(e)})
+                continue
+
+            if row is None:
+                skipped += 1
+                continue
+
+            try:
+                notes = f"Cash dividend: {txn.get('Amount', '')}" if row["type"] == "DIVIDEND" else None
+                service.add_transaction(portfolio_id, user_id, row["symbol"], row["type"],
+                                        row["shares"], row["price"], row["date"],
+                                        fees=row["fees"], notes=notes)
+                imported += 1
+            except (ValueError, InvalidOperation) as e:
+                errors.append({"symbol": row["symbol"], "action": action, "reason": str(e)})
+            except Exception as e:
+                logger.error(f"Error importing {symbol} {action}", exc_info=True)
+                errors.append({"symbol": row["symbol"], "action": action, "reason": str(e)})
+
+    else:  # CSV
+        try:
+            text = contents.decode("utf-8-sig")  # handle BOM if present
+            reader = csv.DictReader(io.StringIO(text))
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid CSV file: {str(e)}")
+
+        for txn in reader:
+            # Only import filled orders
+            status = txn.get("Status", "").strip()
+            if status and status.lower() != "filled":
+                skipped += 1
+                continue
+
+            action = txn.get("Action", "")
+            symbol = txn.get("Symbol", "")
+
+            # Parse quantity: "4 Shares" → "4"
+            qty_raw = txn.get("Quantity|Face Value", "").replace("Shares", "").replace("shares", "").strip()
+
+            # Parse date from "1:47 PM 03/06/2026" → take the date part
+            datetime_str = txn.get("Time and Date(ET)", "").strip()
+            date_str = datetime_str.split(" ")[-1] if datetime_str else ""
+
+            fill_price = txn.get("Fill Price", "")
+
+            try:
+                row = parse_row(symbol, action, qty_raw, fill_price, date_str, "", "%m/%d/%Y")
+            except ValueError as e:
+                errors.append({"symbol": symbol.strip().upper(), "action": action, "reason": str(e)})
+                continue
+
+            if row is None:
+                skipped += 1
+                continue
+
+            try:
+                service.add_transaction(portfolio_id, user_id, row["symbol"], row["type"],
+                                        row["shares"], row["price"], row["date"],
+                                        fees=row["fees"])
+                imported += 1
+            except (ValueError, InvalidOperation) as e:
+                errors.append({"symbol": row["symbol"], "action": action, "reason": str(e)})
+            except Exception as e:
+                logger.error(f"Error importing {symbol} {action}", exc_info=True)
+                errors.append({"symbol": row["symbol"], "action": action, "reason": str(e)})
+
+    return {
+        "message": f"Import complete: {imported} imported, {skipped} skipped, {len(errors)} errors",
+        "imported": imported,
+        "skipped": skipped,
+        "errors": errors
+    }
+
 
 @app.delete("/user/portfolios/{portfolio_id}/transactions/{transaction_id}")
 async def delete_transaction_endpoint(
@@ -1900,8 +2202,199 @@ async def backfill_splits_endpoint(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error backfilling splits: {str(e)}")
 
+# ========== Secured Category / Target Endpoints ==========
+
+@app.get("/user/portfolios/{portfolio_id}/categories")
+async def get_portfolio_categories_endpoint(
+    portfolio_id: int,
+    user_id: int = Depends(get_current_user_id),
+) -> Any:
+    """Get portfolio category analysis (ownership-verified)"""
+    svc = get_user_portfolio_service()
+    portfolio = svc.get_portfolio(portfolio_id, user_id)
+    if not portfolio:
+        raise HTTPException(status_code=404, detail="Portfolio not found")
+    try:
+        return get_db_service().get_categories_analysis(portfolio_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error analyzing categories: {str(e)}")
+
+
+@app.get("/user/portfolios/{portfolio_id}/categories-detailed")
+async def get_portfolio_categories_detailed_endpoint(
+    portfolio_id: int,
+    user_id: int = Depends(get_current_user_id),
+) -> Any:
+    """Get portfolio holdings organized by categories (ownership-verified)"""
+    svc = get_user_portfolio_service()
+    portfolio = svc.get_portfolio(portfolio_id, user_id)
+    if not portfolio:
+        raise HTTPException(status_code=404, detail="Portfolio not found")
+    try:
+        return get_db_service().get_portfolio_by_categories(portfolio_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching categorized portfolio: {str(e)}")
+
+
+@app.get("/user/portfolios/{portfolio_id}/category-targets")
+async def get_portfolio_category_targets_endpoint(
+    portfolio_id: int,
+    user_id: int = Depends(get_current_user_id),
+) -> dict:
+    """Get portfolio-specific category targets (ownership-verified)"""
+    svc = get_user_portfolio_service()
+    portfolio = svc.get_portfolio(portfolio_id, user_id)
+    if not portfolio:
+        raise HTTPException(status_code=404, detail="Portfolio not found")
+    try:
+        from .database.config import db_config
+        from .models.database import PortfolioCategoryTarget, Category
+
+        with db_config.get_session_context() as session:
+            targets = session.query(
+                PortfolioCategoryTarget.category_id,
+                PortfolioCategoryTarget.target_allocation_pct,
+                Category.name,
+                Category.benchmark_ticker
+            ).join(Category).filter(
+                PortfolioCategoryTarget.portfolio_id == portfolio_id
+            ).all()
+
+            if not targets:
+                categories = session.query(Category).filter_by(is_active=True).all()
+                return {
+                    "portfolio_id": portfolio_id,
+                    "using_defaults": True,
+                    "targets": [{
+                        "category_id": c.id,
+                        "category_name": c.name,
+                        "target_allocation_pct": float(c.target_allocation_pct) if c.target_allocation_pct else 0,
+                        "benchmark": c.benchmark_ticker
+                    } for c in categories]
+                }
+
+            return {
+                "portfolio_id": portfolio_id,
+                "using_defaults": False,
+                "targets": [{
+                    "category_id": t[0],
+                    "category_name": t[2],
+                    "target_allocation_pct": float(t[1]),
+                    "benchmark": t[3]
+                } for t in targets]
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching targets: {str(e)}")
+
+
+@app.post("/user/portfolios/{portfolio_id}/category-targets")
+async def set_portfolio_category_target_endpoint(
+    portfolio_id: int,
+    category_id: int,
+    target_pct: float,
+    user_id: int = Depends(get_current_user_id),
+) -> dict:
+    """Set or update a portfolio-specific category target (ownership-verified)"""
+    svc = get_user_portfolio_service()
+    portfolio = svc.get_portfolio(portfolio_id, user_id)
+    if not portfolio:
+        raise HTTPException(status_code=404, detail="Portfolio not found")
+    try:
+        from .database.config import db_config
+        from .models.database import PortfolioCategoryTarget
+        from datetime import datetime
+
+        with db_config.get_session_context() as session:
+            target = session.query(PortfolioCategoryTarget).filter_by(
+                portfolio_id=portfolio_id,
+                category_id=category_id
+            ).first()
+
+            if target:
+                target.target_allocation_pct = target_pct
+                target.updated_at = datetime.now()
+            else:
+                target = PortfolioCategoryTarget(
+                    portfolio_id=portfolio_id,
+                    category_id=category_id,
+                    target_allocation_pct=target_pct
+                )
+                session.add(target)
+
+            session.commit()
+            return {"success": True, "message": "Target updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating target: {str(e)}")
+
+
+@app.post("/user/portfolios/{portfolio_id}/reset-targets")
+async def reset_portfolio_targets_endpoint(
+    portfolio_id: int,
+    user_id: int = Depends(get_current_user_id),
+) -> dict:
+    """Reset portfolio to use global category defaults (ownership-verified)"""
+    svc = get_user_portfolio_service()
+    portfolio = svc.get_portfolio(portfolio_id, user_id)
+    if not portfolio:
+        raise HTTPException(status_code=404, detail="Portfolio not found")
+    try:
+        from .database.config import db_config
+        from .models.database import PortfolioCategoryTarget, Category
+
+        with db_config.get_session_context() as session:
+            session.query(PortfolioCategoryTarget).filter_by(
+                portfolio_id=portfolio_id
+            ).delete()
+
+            categories = session.query(Category).filter_by(is_active=True).all()
+            for cat in categories:
+                if cat.name != 'Uncategorized':
+                    target = PortfolioCategoryTarget(
+                        portfolio_id=portfolio_id,
+                        category_id=cat.id,
+                        target_allocation_pct=cat.target_allocation_pct
+                    )
+                    session.add(target)
+
+            session.commit()
+            return {"success": True, "message": "Targets reset to defaults"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error resetting targets: {str(e)}")
+
+
 # Serve index.html with no-cache headers so browsers always fetch fresh HTML
 _FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
+
+def _compute_build_hash() -> str:
+    """Fingerprint frontend JS/CSS mtimes — changes on every server restart after a deploy."""
+    import hashlib, pathlib
+    frontend_path = pathlib.Path(_FRONTEND_DIR)
+    files = sorted(frontend_path.rglob("*.js")) + sorted(frontend_path.rglob("*.css"))
+    combined = "".join(
+        f"{p.name}:{p.stat().st_mtime_ns}" for p in files if p.is_file()
+    )
+    return hashlib.sha256(combined.encode()).hexdigest()[:12]
+
+_BUILD_HASH = _compute_build_hash()
+
+
+@app.get("/api/version", include_in_schema=False)
+async def get_build_version():
+    """Returns a build hash derived from frontend file mtimes.
+    The frontend polls this to detect when a new deploy has landed and show
+    an 'update available' banner — without requiring a manual CACHE_NAME bump."""
+    return {"build_hash": _BUILD_HASH}
+
 
 @app.get("/", include_in_schema=False)
 async def serve_index():
@@ -1914,6 +2407,18 @@ async def serve_index():
         media_type="text/html",
         headers={"Cache-Control": "no-store"},
     )
+
+# Middleware: tell browsers never to serve JS/CSS from their own HTTP cache —
+# the Service Worker handles caching (stale-while-revalidate). Without this,
+# browsers apply heuristic caching based on Last-Modified and may serve stale
+# assets independently of the SW, bypassing version-string cache busting.
+@app.middleware("http")
+async def no_cache_static_assets(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/css/") or path.startswith("/js/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 
 # Serve all other frontend static files (must be last to avoid shadowing API routes)
 app.mount("/", StaticFiles(directory=_FRONTEND_DIR, html=True), name="frontend")

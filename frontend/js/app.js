@@ -4,12 +4,71 @@ class AlphaVelocityApp {
         this.currentView = 'dashboard';
         this.portfolioMode = 'default'; // 'default' or 'custom'
         this.databaseMode = false; // Enable database-backed portfolio management
-        this.currentPortfolioId = 1; // Default portfolio ID for database mode
+        this.currentPortfolioId = parseInt(localStorage.getItem('selected_portfolio_id')) || null;
         this.customPortfolio = {};
         this.authManager = null; // Will be initialized in init()
         this.transactionPage = 1; // Current page for transaction history pagination
         this._showWatchlist = false; // Whether to show watchlist candidates in dashboard
+        this._watchlistSort = 'score'; // 'score' | 'alpha'
+        this.initTheme();
         this.init();
+    }
+
+    initUIVersion() {
+        const V1_THEMES = ['dark', 'forest', 'slate', 'crt'];
+        const V2_THEMES = ['obsidian', 'carbon', 'void'];
+        const saved = localStorage.getItem('av_ui_version') || 'v2';
+        this._applyUIVersion(saved);
+
+        const v1Btn = document.getElementById('ui-v1-btn');
+        const v2Btn = document.getElementById('ui-v2-btn');
+        if (v1Btn) v1Btn.addEventListener('click', () => { this._applyUIVersion('v1'); localStorage.setItem('av_ui_version', 'v1'); });
+        if (v2Btn) v2Btn.addEventListener('click', () => { this._applyUIVersion('v2'); localStorage.setItem('av_ui_version', 'v2'); });
+    }
+
+    _applyUIVersion(version) {
+        const isV2 = version === 'v2';
+        document.body.classList.toggle('v2', isV2);
+
+        // Sync toggle button active state
+        document.getElementById('ui-v1-btn')?.classList.toggle('active', !isV2);
+        document.getElementById('ui-v2-btn')?.classList.toggle('active', isV2);
+
+        // Switch to a sensible default theme if crossing the version boundary
+        const currentTheme = localStorage.getItem('av_theme') || (isV2 ? 'obsidian' : 'dark');
+        const V1_THEMES = ['dark', 'forest', 'slate', 'crt'];
+        const V2_THEMES = ['obsidian', 'carbon', 'void'];
+        const inWrongGroup = isV2 ? V1_THEMES.includes(currentTheme) : V2_THEMES.includes(currentTheme);
+        const newTheme = inWrongGroup ? (isV2 ? 'obsidian' : 'dark') : currentTheme;
+        this._applyTheme(newTheme);
+        const select = document.getElementById('theme-select');
+        if (select) select.value = newTheme;
+    }
+
+    initTheme() {
+        const ALL_THEMES = ['dark', 'forest', 'slate', 'crt', 'obsidian', 'carbon', 'void'];
+        const isV2 = localStorage.getItem('av_ui_version') !== 'v1';
+        const defaultTheme = isV2 ? 'obsidian' : 'dark';
+        let saved = localStorage.getItem('av_theme') || defaultTheme;
+        if (!ALL_THEMES.includes(saved)) saved = defaultTheme;
+        this._applyTheme(saved);
+        const select = document.getElementById('theme-select');
+        if (select) {
+            select.value = saved;
+            select.addEventListener('change', (e) => {
+                this._applyTheme(e.target.value);
+                localStorage.setItem('av_theme', e.target.value);
+            });
+        }
+        this.initUIVersion();
+    }
+
+    _applyTheme(theme) {
+        document.documentElement.setAttribute('data-theme', theme);
+        localStorage.setItem('av_theme', theme);
+        if (typeof chartManager !== 'undefined') {
+            chartManager.updateChartColors();
+        }
     }
 
     init() {
@@ -17,6 +76,18 @@ class AlphaVelocityApp {
         this.authManager = new AuthManager(window.ALPHAVELOCITY_API_URL || window.location.origin);
         this.authManager.initAuthUI();
         this.authManager.setupEventListeners();
+
+        // Show session-expired message if the user was timed out
+        if (localStorage.getItem('av_session_expired') === '1') {
+            localStorage.removeItem('av_session_expired');
+            setTimeout(() => this.showToast('Your session expired due to inactivity. Please log in again.', 5000), 500);
+        }
+
+        // Start session monitor for logged-in users
+        if (this.authManager.isLoggedIn()) {
+            this.sessionMonitor = new SessionMonitor(this.authManager);
+            this.sessionMonitor.start();
+        }
 
         // Initialize portfolio manager
         this.portfolioManager = new PortfolioManager(window.ALPHAVELOCITY_API_URL || window.location.origin, this.authManager);
@@ -107,6 +178,14 @@ class AlphaVelocityApp {
             });
         });
 
+        // IVR badge click — event delegation so it works for dynamically-rendered badges
+        document.addEventListener('click', (e) => {
+            const badge = e.target.closest('.ivr-badge--clickable');
+            if (badge && badge.dataset.ticker) {
+                this.showTermStructureModal(badge.dataset.ticker);
+            }
+        });
+
         // Search functionality
         const searchBtn = document.getElementById('search-btn');
         const tickerInput = document.getElementById('ticker-input');
@@ -149,6 +228,21 @@ class AlphaVelocityApp {
 
         // Portfolio comparison controls
         this.setupComparisonControls();
+
+        // Term structure modal close
+        const closeTermStructure = document.getElementById('close-term-structure');
+        if (closeTermStructure) {
+            closeTermStructure.addEventListener('click', () => {
+                const modal = document.getElementById('term-structure-modal');
+                if (modal) modal.style.display = 'none';
+            });
+        }
+        const termModal = document.getElementById('term-structure-modal');
+        if (termModal) {
+            termModal.addEventListener('click', (e) => {
+                if (e.target === termModal) termModal.style.display = 'none';
+            });
+        }
     }
 
     switchView(viewName) {
@@ -184,6 +278,9 @@ class AlphaVelocityApp {
     }
 
     async loadInitialData() {
+        // Apply auth-gated nav visibility immediately — before any async work
+        this._applyNavVisibility();
+
         try {
             // Health + DB check in parallel
             const [, ] = await Promise.all([
@@ -195,7 +292,6 @@ class AlphaVelocityApp {
             const tasks = [
                 this.loadPortfolioSummary(),
                 this.loadTopMomentum(),
-                this.loadTrendChart()
             ];
 
             if (this.authManager && this.authManager.isLoggedIn()) {
@@ -235,6 +331,7 @@ class AlphaVelocityApp {
                 }
             }
             if (selectedId) {
+                this.currentPortfolioId = selectedId;
                 await this.loadSelectedPortfolioHoldings(selectedId);
             }
         } catch (error) {
@@ -251,6 +348,8 @@ class AlphaVelocityApp {
         const portfolioNameHeader = document.getElementById('selected-portfolio-name');
 
         if (!detailsSection || !holdingsContainer) return;
+
+        this.currentPortfolioId = portfolioId;
 
         try {
             // Get portfolio details
@@ -274,8 +373,9 @@ class AlphaVelocityApp {
                 `;
             }
 
-            // Get holdings
+            // Get holdings and cash balance
             const holdings = portfolio.holdings || [];
+            const cashBalance = portfolio.cash_balance || 0;
 
             // Debug: Log holdings data to check category field
             console.log('Portfolio holdings data:', holdings);
@@ -300,10 +400,17 @@ class AlphaVelocityApp {
             let watchlistByCategory = {};
             const categoryMap = {};
 
-            const tickers = holdings.map(h => h.ticker);
+            const holdingTickers = holdings.map(h => h.ticker);
 
-            // Fire all requests in parallel
-            const [batchResult, watchlistData, targetsResponse, valueHistory, returnHistory] = await Promise.all([
+            // Fetch user watchlist first so its tickers are included in the batch momentum call
+            const userWatchlistData = await api.getPortfolioWatchlist(portfolioId).catch(() => null);
+            const wlOnlyTickers = (userWatchlistData?.items || [])
+                .map(i => i.ticker)
+                .filter(t => !holdingTickers.includes(t));
+            const tickers = [...new Set([...holdingTickers, ...wlOnlyTickers])];
+
+            // Fire all remaining requests in parallel
+            const [batchResult, watchlistData, targetsResponse, valueHistory, returnHistory, drawdownHistory, compositeData] = await Promise.all([
                 api.getBatchMomentum(tickers).catch(err => {
                     console.warn('Batch momentum fetch failed:', err);
                     return null;
@@ -320,6 +427,12 @@ class AlphaVelocityApp {
                     .then(r => r.ok ? r.json() : null)
                     .catch(() => null),
                 fetch(`${api.baseURL}/database/portfolio/${portfolioId}/return-history?days=180`)
+                    .then(r => r.ok ? r.json() : null)
+                    .catch(() => null),
+                fetch(`${api.baseURL}/database/portfolio/${portfolioId}/drawdown-history?days=180`)
+                    .then(r => r.ok ? r.json() : null)
+                    .catch(() => null),
+                fetch(`${api.baseURL}/database/portfolio/${portfolioId}/composite-momentum?days=90`)
                     .then(r => r.ok ? r.json() : null)
                     .catch(() => null)
             ]);
@@ -352,6 +465,69 @@ class AlphaVelocityApp {
                 if (returnChartSection) returnChartSection.style.display = 'none';
             }
 
+            // Render composite momentum score
+            const compositeSection = document.getElementById('portfolio-composite-momentum-section');
+            if (compositeData && compositeData.current_score !== null) {
+                if (compositeSection) compositeSection.style.display = 'block';
+                const score = compositeData.current_score;
+                const scoreEl = document.getElementById('composite-score-value');
+                const ratingEl = document.getElementById('composite-score-rating');
+                const coverageEl = document.getElementById('composite-score-coverage');
+                const color = score >= 75 ? '#10b981' : score >= 60 ? '#3b82f6' : score >= 45 ? '#f59e0b' : '#ef4444';
+                if (scoreEl) { scoreEl.textContent = score.toFixed(1); scoreEl.style.color = color; }
+                if (ratingEl) { ratingEl.textContent = compositeData.current_rating; ratingEl.style.color = color; ratingEl.style.background = color + '20'; }
+                if (coverageEl) coverageEl.textContent = `${compositeData.scored_holdings} of ${compositeData.total_holdings} holdings scored`;
+                if (compositeData.history.length > 1) {
+                    chartManager.createMomentumSparkline('composite-momentum-sparkline', compositeData.history);
+                }
+            } else {
+                if (compositeSection) compositeSection.style.display = 'none';
+            }
+
+            // Render drawdown chart
+            const drawdownChartSection = document.getElementById('portfolio-drawdown-chart-section');
+            if (drawdownHistory && drawdownHistory.labels && drawdownHistory.labels.length > 1) {
+                if (drawdownChartSection) drawdownChartSection.style.display = 'block';
+
+                // Build drawdown stats block
+                const statsEl = document.getElementById('portfolio-drawdown-stats');
+                if (statsEl) {
+                    const ddSeries = { 'Portfolio': drawdownHistory.portfolio, ...(drawdownHistory.benchmarks || {}) };
+                    const ddColors = { Portfolio: getComputedStyle(document.documentElement).getPropertyValue('--chart-secondary').trim() || '#7c3aed', SPY: '#94a3b8', QQQ: '#10b981', MTUM: '#38bdf8', AIQ: '#f472b6' };
+                    const cards = Object.entries(ddSeries).map(([name, series]) => {
+                        const valid = series.filter(v => v !== null);
+                        if (!valid.length) return '';
+                        const maxDD = Math.min(...valid);
+                        const currentDD = valid[valid.length - 1];
+                        const color = ddColors[name] || '#9ca3af';
+                        const fmt = v => v.toFixed(1) + '%';
+                        return `<div class="stat-card" style="padding: 0.875rem 1rem; border-top: 3px solid ${color};">
+                            <div style="font-size: 0.75rem; font-weight: 600; color: ${color}; margin-bottom: 0.5rem; letter-spacing: 0.05em;">${name}</div>
+                            <div style="display: flex; gap: 1.5rem;">
+                                <div>
+                                    <div style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.15rem;">Max DD</div>
+                                    <div style="font-size: 1rem; font-weight: 700; color: ${maxDD < -10 ? '#ef4444' : maxDD < -5 ? '#f59e0b' : '#10b981'};">${fmt(maxDD)}</div>
+                                </div>
+                                <div>
+                                    <div style="font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 0.15rem;">Current</div>
+                                    <div style="font-size: 1rem; font-weight: 700; color: ${currentDD < -10 ? '#ef4444' : currentDD < -5 ? '#f59e0b' : currentDD < -1 ? '#9ca3af' : '#10b981'};">${fmt(currentDD)}</div>
+                                </div>
+                            </div>
+                        </div>`;
+                    }).join('');
+                    statsEl.innerHTML = `<div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem; margin-bottom: 0;">${cards}</div>`;
+                }
+
+                chartManager.createDrawdownChart(
+                    'portfolio-drawdown-chart',
+                    drawdownHistory.labels,
+                    drawdownHistory.portfolio,
+                    drawdownHistory.benchmarks || {}
+                );
+            } else {
+                if (drawdownChartSection) drawdownChartSection.style.display = 'none';
+            }
+
             // Process batch momentum results
             if (batchResult && batchResult.data) {
                 for (const [ticker, data] of Object.entries(batchResult.data)) {
@@ -362,11 +538,34 @@ class AlphaVelocityApp {
                 }
             }
 
-            // Process watchlist results
+            // Process auto-generated watchlist candidates
             if (watchlistData && watchlistData.categories) {
                 for (const [catName, catData] of Object.entries(watchlistData.categories)) {
                     if (catData.candidates && catData.candidates.length > 0) {
                         watchlistByCategory[catName] = catData.candidates;
+                    }
+                }
+            }
+
+            // Merge user-saved watchlist tickers (Builder tab) into the category buckets
+            if (userWatchlistData && userWatchlistData.items) {
+                const holdingTickerSet = new Set(holdingTickers);
+                const autoWlTickers = new Set(
+                    Object.values(watchlistByCategory).flatMap(cands => cands.map(c => c.ticker))
+                );
+                for (const item of userWatchlistData.items) {
+                    // Skip tickers already in the portfolio (they have their own row)
+                    if (holdingTickerSet.has(item.ticker)) continue;
+                    const bucket = item.category || 'Watchlist';
+                    if (!watchlistByCategory[bucket]) watchlistByCategory[bucket] = [];
+                    // Avoid duplicates with auto-generated candidates
+                    if (!autoWlTickers.has(item.ticker)) {
+                        watchlistByCategory[bucket].push({
+                            ticker: item.ticker,
+                            composite_score: item.momentum_score,
+                            rating: item.rating,
+                            current_price: currentPrices[item.ticker] || null,
+                        });
                     }
                 }
             }
@@ -383,28 +582,30 @@ class AlphaVelocityApp {
 
             // Helper function to get score color
             const getScoreColor = (score) => {
-                if (score >= 80) return '#10b981'; // Green
-                if (score >= 70) return '#3b82f6'; // Blue
-                if (score >= 60) return '#f59e0b'; // Yellow
-                if (score >= 50) return '#ef4444'; // Orange
-                return '#dc2626'; // Red
+                const s = getComputedStyle(document.documentElement);
+                if (score >= 80) return s.getPropertyValue('--score-strong-buy').trim() || '#10b981';
+                if (score >= 70) return s.getPropertyValue('--score-buy').trim() || '#3b82f6';
+                if (score >= 60) return s.getPropertyValue('--score-hold').trim() || '#f59e0b';
+                if (score >= 50) return s.getPropertyValue('--score-weak-hold').trim() || '#ef4444';
+                return s.getPropertyValue('--score-sell').trim() || '#dc2626';
             };
 
             // Helper function to get rating color
             const getRatingColor = (rating) => {
+                const s = getComputedStyle(document.documentElement);
                 const colors = {
-                    'Strong Buy': '#10b981',
-                    'Buy': '#3b82f6',
-                    'Hold': '#f59e0b',
-                    'Weak Hold': '#ef4444',
-                    'Sell': '#dc2626'
+                    'Strong Buy': s.getPropertyValue('--score-strong-buy').trim() || '#10b981',
+                    'Buy': s.getPropertyValue('--score-buy').trim() || '#3b82f6',
+                    'Hold': s.getPropertyValue('--score-hold').trim() || '#f59e0b',
+                    'Weak Hold': s.getPropertyValue('--score-weak-hold').trim() || '#ef4444',
+                    'Sell': s.getPropertyValue('--score-sell').trim() || '#dc2626',
                 };
-                return colors[rating] || '#6b7280';
+                return colors[rating] || (s.getPropertyValue('--score-neutral').trim() || '#6b7280');
             };
 
             // Group holdings by category and calculate values (using current prices)
             const holdingsByCategory = {};
-            let totalPortfolioValue = 0;
+            let totalPortfolioValue = cashBalance;  // include cash in total
 
             holdings.forEach(h => {
                 const category = h.category || 'Uncategorized';
@@ -446,12 +647,35 @@ class AlphaVelocityApp {
             detailsSection.style.display = 'block';
             let holdingsHTML = '';
 
-            // Sort categories by total value (descending)
+            // Sort categories by target allocation (descending)
             const sortedCategories = Object.keys(holdingsByCategory).sort((a, b) => {
                 const targetA = (categoryMap[a] || { target_allocation: 0 }).target_allocation;
                 const targetB = (categoryMap[b] || { target_allocation: 0 }).target_allocation;
                 return targetB - targetA;
             });
+
+            // Attach targetPct to each category bucket (used by v2 renderer)
+            sortedCategories.forEach(catName => {
+                holdingsByCategory[catName].targetPct =
+                    ((categoryMap[catName] || { target_allocation: 0 }).target_allocation * 100).toFixed(1);
+            });
+
+            // v2 render path — early return after rendering
+            if (this._isV2()) {
+                const v2HTML = this._renderHoldingsV2(holdingsByCategory, momentumScores, currentPrices, watchlistByCategory, totalPortfolioValue, cashBalance);
+                holdingsContainer.innerHTML = v2HTML;
+                this._setupV2CardBehaviors(holdingsContainer);
+                holdingsContainer.classList.toggle('show-watchlist', this._showWatchlist);
+                // Include user watchlist tickers in IVR population
+                const userWlTickers = userWatchlistData?.items?.map(i => i.ticker) || [];
+                const allIvrTickers = [...new Set([...tickers, ...userWlTickers])];
+                this._populateIVRCells(allIvrTickers);
+                // Build ticker→category map from holdings for heatmap grouping
+                const tickerCategoryMap = {};
+                holdings.forEach(h => { if (h.ticker) tickerCategoryMap[h.ticker] = h.category || 'Uncategorized'; });
+                this._loadCorrelationMatrix(portfolioId, null, tickerCategoryMap, sortedCategories);
+                return;
+            }
 
             sortedCategories.forEach(categoryName => {
                 const categoryData = holdingsByCategory[categoryName];
@@ -498,6 +722,7 @@ class AlphaVelocityApp {
                                         <th>Gain/Loss</th>
                                         <th>Momentum</th>
                                         <th>Rating</th>
+                                        <th title="IV Rank: measures how elevated implied volatility is vs. the past 52 weeks. ≥50 = sell premium, &lt;30 = cheap hedge.">IVR</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -553,6 +778,9 @@ class AlphaVelocityApp {
                                                         `<span class="rating-badge" style="background: ${ratingColor}20; color: ${ratingColor}; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; font-weight: 600;">${rating}</span>`
                                                         : dash}
                                                 </td>
+                                                <td class="ivr-cell" data-ticker="${h.ticker}">
+                                                    <span style="color: #6b7280; font-size: 0.7rem;">…</span>
+                                                </td>
                                             </tr>
                                         `;
                                     }).join('')}
@@ -567,9 +795,506 @@ class AlphaVelocityApp {
 
             // Sync show-watchlist class with current toggle state
             holdingsContainer.classList.toggle('show-watchlist', this._showWatchlist);
+
+            // Async IVR population — fetch per ticker and update cells as results arrive
+            this._populateIVRCells(tickers);
         } catch (error) {
             console.error('Error loading portfolio holdings:', error);
             detailsSection.style.display = 'none';
+        }
+    }
+
+    async loadBuilderWatchlist() {
+        const container = document.getElementById('builder-watchlist');
+        if (!container) return;
+        const portfolioId = this.portfolioManager?.getSelectedPortfolioId() || this.currentPortfolioId;
+        if (!portfolioId) {
+            container.innerHTML = '<p style="color: var(--text-muted); font-size: 0.85rem;">Select a portfolio to manage its watchlist.</p>';
+            return;
+        }
+        try {
+            const data = await api.getPortfolioWatchlist(portfolioId);
+            this._renderBuilderWatchlist(data.items, portfolioId);
+        } catch (e) {
+            container.innerHTML = '<p style="color: var(--text-muted); font-size: 0.85rem;">Could not load watchlist.</p>';
+        }
+    }
+
+    setWatchlistSort(sort) {
+        this._watchlistSort = sort;
+        document.getElementById('wl-sort-score')?.classList.toggle('active', sort === 'score');
+        document.getElementById('wl-sort-alpha')?.classList.toggle('active', sort === 'alpha');
+        // Re-render with current items stored on the container
+        const container = document.getElementById('builder-watchlist');
+        if (container?._watchlistData) {
+            this._renderBuilderWatchlist(container._watchlistData.items, container._watchlistData.portfolioId);
+        }
+    }
+
+    _renderBuilderWatchlist(items, portfolioId) {
+        const container = document.getElementById('builder-watchlist');
+        if (!container) return;
+        // Store data for re-render on sort change
+        container._watchlistData = { items, portfolioId };
+        if (!items.length) {
+            container.innerHTML = '<p style="color: var(--text-muted); font-size: 0.85rem;">No tickers on the watchlist yet. Add one above or use "Populate from Categories".</p>';
+            return;
+        }
+        // Sort
+        const sorted = [...items].sort((a, b) => {
+            if (this._watchlistSort === 'alpha') return a.ticker.localeCompare(b.ticker);
+            // Score descending; nulls last
+            const sa = a.momentum_score ?? -1;
+            const sb = b.momentum_score ?? -1;
+            return sb - sa;
+        });
+        const dash = '<span style="color: var(--text-muted)">—</span>';
+        container.innerHTML = sorted.map(item => {
+            const score = item.momentum_score;
+            const scoreColor = score ? getScoreColor(score) : 'var(--text-muted)';
+            const ratingColor = item.rating ? getRatingColor(item.rating) : 'var(--text-muted)';
+            return `
+                <div class="wl-builder-item">
+                    <strong class="wl-builder-ticker">${item.ticker}</strong>
+                    <span class="wl-builder-score" style="color: ${scoreColor}">${score != null ? score.toFixed(1) : dash}</span>
+                    <span class="wl-builder-rating" style="background: ${item.rating ? ratingColor + '20' : 'transparent'}; color: ${ratingColor}">${item.rating || dash}</span>
+                    <button class="remove-ticker-btn-table" onclick="app.removeFromBuilderWatchlist('${item.ticker}', ${portfolioId})" title="Remove">×</button>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async addToBuilderWatchlist() {
+        const input = document.getElementById('watchlist-add-input');
+        const ticker = input?.value.trim().toUpperCase();
+        if (!ticker) return;
+        const portfolioId = this.portfolioManager?.getSelectedPortfolioId() || this.currentPortfolioId;
+        if (!portfolioId) { this.showError('Select a portfolio first'); return; }
+        try {
+            const data = await api.addToPortfolioWatchlist(portfolioId, [ticker]);
+            input.value = '';
+            this._renderBuilderWatchlist(data.items, portfolioId);
+        } catch (e) {
+            this.showError(`Could not add ${ticker} to watchlist`);
+        }
+    }
+
+    async removeFromBuilderWatchlist(ticker, portfolioId) {
+        try {
+            await api.removeFromPortfolioWatchlist(portfolioId, ticker);
+            const data = await api.getPortfolioWatchlist(portfolioId);
+            this._renderBuilderWatchlist(data.items, portfolioId);
+        } catch (e) {
+            this.showError(`Could not remove ${ticker}`);
+        }
+    }
+
+    async populateWatchlistFromCategories() {
+        const portfolioId = this.portfolioManager?.getSelectedPortfolioId() || this.currentPortfolioId;
+        if (!portfolioId) { this.showError('Select a portfolio first'); return; }
+        const btn = document.getElementById('populate-watchlist-btn');
+        if (btn) btn.disabled = true;
+        try {
+            const data = await api.populateWatchlistFromCategories(portfolioId);
+            this._renderBuilderWatchlist(data.items, portfolioId);
+            this.showSuccess(`Watchlist updated — ${data.count} ticker(s)`);
+        } catch (e) {
+            this.showError('Could not populate watchlist');
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    // ─── V2 HOLDINGS RENDER ────────────────────────────────────────────
+
+    _isV2() { return document.body.classList.contains('v2'); }
+
+    _renderHoldingsV2(holdingsByCategory, momentumScores, currentPrices, watchlistByCategory, totalPortfolioValue = 0, cashBalance = 0) {
+        const collapseState = JSON.parse(localStorage.getItem('av_v2_collapse') || '{}');
+        const cardOrder = JSON.parse(localStorage.getItem('av_v2_order') || '[]');
+        const dash = '<span style="color: var(--text-muted)">—</span>';
+
+        // Sort categories by saved order
+        let categories = Object.keys(holdingsByCategory);
+        if (cardOrder.length) {
+            categories = [...cardOrder.filter(c => categories.includes(c)),
+                          ...categories.filter(c => !cardOrder.includes(c))];
+        }
+
+        const cashPct = cashBalance !== 0 && totalPortfolioValue > 0
+            ? (cashBalance / totalPortfolioValue * 100).toFixed(1)
+            : null;
+        const cashCard = cashBalance !== 0 ? `
+            <div class="category-section" data-category="__cash__">
+                <div class="v2-card-header" data-category="__cash__">
+                    <span class="v2-drag-handle" style="visibility:hidden">⠿</span>
+                    <span class="v2-cat-name">Cash</span>
+                    <div class="v2-cat-stats">
+                        ${cashPct !== null ? `<span class="v2-alloc${cashBalance < 0 ? ' underweight' : ''}"><span class="stat-value">${cashPct}%</span></span>` : ''}
+                        <span style="font-size:0.8rem;font-weight:600;color:${cashBalance < 0 ? '#ef4444' : '#10b981'}">$${Math.abs(cashBalance).toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                    </div>
+                </div>
+            </div>` : '';
+
+        return categories.map(catName => {
+            const catData = holdingsByCategory[catName];
+            const isCollapsed = collapseState[catName] ?? false;
+
+            // Aggregate stats
+            const scored = catData.holdings.filter(h => !h._isWatchlist && momentumScores[h.ticker]);
+            const avgScore = scored.length
+                ? (scored.reduce((s, h) => s + (momentumScores[h.ticker]?.composite_score || 0), 0) / scored.length).toFixed(1)
+                : null;
+            const totalValue = catData.holdings
+                .filter(h => !h._isWatchlist && currentPrices[h.ticker])
+                .reduce((s, h) => s + currentPrices[h.ticker] * h.shares, 0);
+            const target = catData.targetPct != null ? parseFloat(catData.targetPct) : null;
+            const actualPct = totalPortfolioValue > 0 ? (totalValue / totalPortfolioValue * 100) : null;
+
+            // Allocation indicator
+            let allocClass = '';
+            let allocIcon = '';
+            if (target !== null && actualPct !== null) {
+                if (actualPct > target + 0.5)      { allocClass = 'overweight';  allocIcon = '▲'; }
+                else if (actualPct < target - 0.5) { allocClass = 'underweight'; allocIcon = '▼'; }
+            }
+
+            const statsHtml = `
+                <div class="v2-cat-stats">
+                    ${actualPct !== null ? `<span class="tip-label v2-alloc ${allocClass}"><span class="stat-value">${actualPct.toFixed(1)}%</span>${allocIcon ? `<span class="alloc-icon">${allocIcon}</span>` : ''}</span>` : ''}
+                    ${target !== null ? `<span class="tip-label v2-alloc-target">/ ${target.toFixed(1)}% target</span>` : ''}
+                </div>`;
+
+            const rows = catData.holdings.map(h => {
+                const isWL = h._isWatchlist;
+                const momentum = isWL ? null : momentumScores[h.ticker];
+                const score = isWL ? h._wlScore : (momentum?.composite_score ?? null);
+                const rating = isWL ? h._wlRating : (momentum?.rating ?? null);
+                const scoreColor = score ? getScoreColor(score) : 'var(--text-muted)';
+                const ratingColor = rating ? getRatingColor(rating) : 'var(--text-muted)';
+                const currentPrice = isWL ? h._wlPrice : currentPrices[h.ticker];
+                const currentValue = (!isWL && currentPrice) ? currentPrice * h.shares : null;
+                const costBasis = h.total_cost_basis || 0;
+                const gainLoss = currentValue ? currentValue - costBasis : null;
+                const gainLossPct = (costBasis > 0 && gainLoss !== null) ? (gainLoss / costBasis) * 100 : null;
+                const glColor = gainLoss !== null ? (gainLoss >= 0 ? '#10b981' : '#ef4444') : 'var(--text-muted)';
+
+                const tooltip = !isWL ? `
+                    <span class="v2-pos-tooltip">
+                        <span class="tip-row"><span class="tip-label">Shares</span><span class="tip-val">${h.shares?.toFixed(4) ?? '—'}</span></span>
+                        <span class="tip-row"><span class="tip-label">Avg Cost</span><span class="tip-val">${h.average_cost_basis ? '$' + Number(h.average_cost_basis).toFixed(2) : '—'}</span></span>
+                        <span class="tip-row"><span class="tip-label">Total Cost</span><span class="tip-val">${h.total_cost_basis ? '$' + Number(h.total_cost_basis).toFixed(2) : '—'}</span></span>
+                    </span>` : '';
+
+                return `
+                    <tr class="${isWL ? 'v2-watchlist-row' : ''}">
+                        <td class="v2-ticker-cell">
+                            <span class="v2-ticker-name">${h.ticker}</span>
+                            ${isWL ? '<span class="v2-wl-badge">WL</span>' : ''}
+                            ${tooltip}
+                        </td>
+                        <td>${currentPrice != null ? '$' + Number(currentPrice).toFixed(2) : dash}</td>
+                        <td>${currentValue != null ? '<strong>$' + currentValue.toFixed(0) + '</strong>' : dash}</td>
+                        <td style="color:${glColor}; font-weight:600">
+                            ${gainLoss !== null ? '$' + (Math.abs(gainLoss) < 1 ? gainLoss.toFixed(2) : gainLoss.toFixed(0)) + (gainLossPct !== null ? ' (' + gainLossPct.toFixed(1) + '%)' : '') : dash}
+                        </td>
+                        <td>${score != null ? `<span style="color:${scoreColor};font-weight:700">${Number(score).toFixed(1)}</span>` : dash}</td>
+                        <td>${rating ? `<span class="rating-badge" style="background:${ratingColor}20;color:${ratingColor}">${rating}</span>` : dash}</td>
+                        <td class="ivr-cell" data-ticker="${h.ticker}"><span style="color:var(--text-muted);font-size:0.7rem">…</span></td>
+                    </tr>`;
+            }).join('');
+
+            return `
+                <div class="category-section${isCollapsed ? ' collapsed' : ''}"
+                     data-category="${catName}"
+                     draggable="true">
+                    <div class="v2-card-header" data-category="${catName}">
+                        <span class="v2-drag-handle">⠿</span>
+                        <span class="v2-cat-name">${catName}</span>
+                        ${statsHtml}
+                        <button class="v2-collapse-btn" title="Collapse">▼</button>
+                    </div>
+                    <div class="v2-card-body">
+                        <table class="v2-holdings-table">
+                            <thead>
+                                <tr>
+                                    <th>Ticker</th>
+                                    <th>Price</th>
+                                    <th>Value</th>
+                                    <th>Gain/Loss</th>
+                                    <th>Score</th>
+                                    <th>Rating</th>
+                                    <th title="IV Rank">IVR</th>
+                                </tr>
+                            </thead>
+                            <tbody>${rows}</tbody>
+                            ${(() => {
+                                const totalGainLoss = catData.holdings
+                                    .filter(h => !h._isWatchlist && currentPrices[h.ticker])
+                                    .reduce((s, h) => {
+                                        const val = currentPrices[h.ticker] * h.shares;
+                                        const cost = h.total_cost_basis || 0;
+                                        return s + (val - cost);
+                                    }, 0);
+                                const glColor = totalGainLoss >= 0 ? '#10b981' : '#ef4444';
+                                const scoreColor = avgScore ? getScoreColor(parseFloat(avgScore)) : 'var(--text-muted)';
+                                return `<tfoot class="v2-summary-row">
+                                    <tr>
+                                        <td>Total</td>
+                                        <td></td>
+                                        <td>${totalValue > 0 ? '<strong>$' + totalValue.toLocaleString('en-US', {maximumFractionDigits: 0}) + '</strong>' : ''}</td>
+                                        <td style="color:${glColor};font-weight:600">${totalValue > 0 ? '$' + (Math.abs(totalGainLoss) < 1 ? totalGainLoss.toFixed(2) : totalGainLoss.toFixed(0)) : ''}</td>
+                                        <td>${avgScore ? `<span style="color:${scoreColor};font-weight:700">${avgScore}</span>` : ''}</td>
+                                        <td></td>
+                                        <td></td>
+                                    </tr>
+                                </tfoot>`;
+                            })()}
+                        </table>
+                    </div>
+                </div>`;
+        }).join('') + cashCard;
+    }
+
+    _setupV2CardBehaviors(container) {
+        // Collapsible headers
+        container.querySelectorAll('.v2-card-header').forEach(header => {
+            header.addEventListener('click', (e) => {
+                if (e.target.closest('.v2-drag-handle')) return;
+                const card = header.closest('.category-section');
+                card.classList.toggle('collapsed');
+                const state = JSON.parse(localStorage.getItem('av_v2_collapse') || '{}');
+                state[card.dataset.category] = card.classList.contains('collapsed');
+                localStorage.setItem('av_v2_collapse', JSON.stringify(state));
+            });
+        });
+
+        // Drag-to-reorder
+        let dragSrc = null;
+        container.querySelectorAll('.category-section[draggable]').forEach(card => {
+            card.addEventListener('dragstart', (e) => {
+                dragSrc = card;
+                e.dataTransfer.effectAllowed = 'move';
+                setTimeout(() => card.style.opacity = '0.4', 0);
+            });
+            card.addEventListener('dragend', () => {
+                card.style.opacity = '';
+                container.querySelectorAll('.category-section').forEach(c => c.classList.remove('drag-over'));
+                // Save new order
+                const order = [...container.querySelectorAll('.category-section')].map(c => c.dataset.category);
+                localStorage.setItem('av_v2_order', JSON.stringify(order));
+            });
+            card.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                container.querySelectorAll('.category-section').forEach(c => c.classList.remove('drag-over'));
+                if (card !== dragSrc) card.classList.add('drag-over');
+            });
+            card.addEventListener('drop', (e) => {
+                e.preventDefault();
+                if (!dragSrc || dragSrc === card) return;
+                const cards = [...container.querySelectorAll('.category-section')];
+                const srcIdx = cards.indexOf(dragSrc);
+                const dstIdx = cards.indexOf(card);
+                if (srcIdx < dstIdx) card.after(dragSrc);
+                else card.before(dragSrc);
+            });
+        });
+    }
+
+    async _populateIVRCells(tickers) {
+        // Deduplicate (watchlist rows share tickers with holdings)
+        const unique = [...new Set(tickers)];
+
+        // Fetch IVR for each ticker; update the cell as each result arrives
+        await Promise.all(unique.map(async ticker => {
+            try {
+                const data = await api.getIVData(ticker);
+                const cells = document.querySelectorAll(`.ivr-cell[data-ticker="${ticker}"]`);
+                cells.forEach(cell => {
+                    cell.innerHTML = this._renderIVRBadge(data);
+                });
+            } catch (e) {
+                // Leave the placeholder as-is on error
+            }
+        }));
+    }
+
+    _renderIVRBadge(data) {
+        const ivPct = data.iv != null ? `IV ${(data.iv * 100).toFixed(0)}%` : '—';
+        const earningsNote = data.earnings_dte != null
+            ? ` | Earnings in ${data.earnings_dte}d`
+            : '';
+
+        // Earnings imminent — override everything with a warning
+        if (data.earnings_warning) {
+            const title = `Earnings in ${data.earnings_dte} day(s) — IV spike is earnings premium, not a true sell signal. ${ivPct}`;
+            return `<span class="ivr-badge" style="background: #f59e0b20; color: #f59e0b; padding: 0.2rem 0.45rem; border-radius: 0.25rem; font-size: 0.72rem; font-weight: 600; cursor: default; white-space: nowrap;" title="${title}">Earn ${data.earnings_dte}d</span>`;
+        }
+
+        const MIN_IVR_POINTS = 60;
+        if (data.ivr === null || data.ivr === undefined || data.data_points < MIN_IVR_POINTS) {
+            const pct = data.data_points > 0
+                ? Math.round(data.data_points / MIN_IVR_POINTS * 100)
+                : 0;
+            const title = `Building IV history — ${data.data_points}/${MIN_IVR_POINTS} snapshots (${pct}%). IVR signal activates at ${MIN_IVR_POINTS} days.${ivPct !== '—' ? ' ' + ivPct : ''}${earningsNote}`;
+            return `<span style="color: #6b7280; font-size: 0.72rem; cursor: default; white-space: nowrap;" title="${title}">~${pct}%</span>`;
+        }
+
+        const ivr = data.ivr;
+        let color, label;
+        if (ivr >= 50) {
+            color = '#ef4444'; label = 'Sell';
+        } else if (ivr < 30) {
+            color = '#10b981'; label = 'Hedge';
+        } else {
+            color = '#f59e0b'; label = 'Neutral';
+        }
+
+        const rangeStr = `52w: ${data.iv_52w_low != null ? (data.iv_52w_low*100).toFixed(0)+'%' : '?'}–${data.iv_52w_high != null ? (data.iv_52w_high*100).toFixed(0)+'%' : '?'}`;
+        const title = `IVR ${ivr} — ${data.signal}. ${ivPct}. ${rangeStr}${earningsNote}`;
+
+        return `<span class="ivr-badge ivr-badge--clickable" data-ticker="${data.ticker}" style="background: ${color}20; color: ${color}; padding: 0.2rem 0.45rem; border-radius: 0.25rem; font-size: 0.72rem; font-weight: 600; cursor: pointer; white-space: nowrap;" title="${title}">${ivr} ${label}</span>`;
+    }
+
+    async _loadCorrelationMatrix(portfolioId, days = null, tickerCategoryMap = {}, categoryOrder = []) {
+        const section = document.getElementById('correlation-matrix-section');
+        const container = document.getElementById('correlation-matrix-container');
+        const select = document.getElementById('correlation-days-select');
+        if (!section || !container) return;
+
+        const d = days || (select ? parseInt(select.value, 10) : 90);
+
+        // Wire up the day selector once; preserve category context across day changes
+        if (select && !select._wired) {
+            select._wired = true;
+            select.addEventListener('change', () => {
+                this._loadCorrelationMatrix(portfolioId, parseInt(select.value, 10), tickerCategoryMap, categoryOrder);
+            });
+        }
+
+        section.style.display = 'block';
+        const loading = document.createElement('p');
+        loading.style.cssText = 'color: var(--text-secondary); font-size: 0.8rem; padding: 0.5rem 0;';
+        loading.textContent = 'Loading correlations…';
+        container.innerHTML = '';
+        container.appendChild(loading);
+
+        try {
+            const data = await api.getCorrelationMatrix(portfolioId, d);
+            if (data && data.tickers && data.tickers.length >= 2) {
+
+                // --- Reorder tickers by category ---
+                // Build sorted ticker list: follow categoryOrder, then alphabetical within each category
+                const apiTickerSet = new Set(data.tickers);
+                const sortedTickers = [];
+                const categoryGroups = [];  // [{name, count}, ...] for divider rendering
+
+                const usedOrder = categoryOrder.length > 0 ? categoryOrder : [...data.tickers].sort();
+
+                usedOrder.forEach(catName => {
+                    const inCat = data.tickers.filter(t =>
+                        apiTickerSet.has(t) && (tickerCategoryMap[t] || 'Uncategorized') === catName
+                    ).sort();
+                    if (inCat.length > 0) {
+                        inCat.forEach(t => sortedTickers.push(t));
+                        categoryGroups.push({ name: catName, count: inCat.length });
+                    }
+                });
+
+                // Any tickers not matched to a known category go at the end
+                const uncategorised = data.tickers.filter(t => !sortedTickers.includes(t)).sort();
+                if (uncategorised.length > 0) {
+                    uncategorised.forEach(t => sortedTickers.push(t));
+                    categoryGroups.push({ name: 'Other', count: uncategorised.length });
+                }
+
+                // Remap the matrix to the new ticker order
+                const origIdx = {};
+                data.tickers.forEach((t, i) => { origIdx[t] = i; });
+                const reorderedMatrix = sortedTickers.map(rowT =>
+                    sortedTickers.map(colT => data.matrix[origIdx[rowT]][origIdx[colT]])
+                );
+
+                // Compute average pairwise correlation on the reordered matrix
+                const n = sortedTickers.length;
+                let sum = 0, count = 0;
+                for (let i = 0; i < n; i++) {
+                    for (let j = 0; j < n; j++) {
+                        if (i !== j && reorderedMatrix[i][j] !== null) {
+                            sum += reorderedMatrix[i][j];
+                            count++;
+                        }
+                    }
+                }
+                const avgCorr = count > 0 ? sum / count : null;
+
+                // renderCorrelationHeatmap clears the container — call it first,
+                // then prepend the stat card and append the footer note.
+                chartManager.renderCorrelationHeatmap(container, sortedTickers, reorderedMatrix, categoryGroups);
+
+                // Prepend stat card above heatmap
+                if (avgCorr !== null) {
+                    let corrLabel, corrColor;
+                    if (avgCorr >= 0.7)      { corrLabel = 'High — concentrated factor bet'; corrColor = '#ef4444'; }
+                    else if (avgCorr >= 0.4) { corrLabel = 'Moderate — some diversification'; corrColor = '#f59e0b'; }
+                    else                     { corrLabel = 'Low — meaningful diversification'; corrColor = '#10b981'; }
+
+                    const statCard = document.createElement('div');
+                    statCard.style.cssText = 'display: flex; align-items: baseline; gap: 0.6rem; margin-bottom: 0.75rem; padding: 0.5rem 0.75rem; background: var(--surface-alt); border-radius: 0.3rem; border: 1px solid var(--border-subtle);';
+                    const valueSpan = document.createElement('span');
+                    valueSpan.style.cssText = `font-size: 1.4rem; font-weight: 700; color: ${corrColor}; line-height: 1;`;
+                    valueSpan.textContent = avgCorr.toFixed(2);
+                    const labelSpan = document.createElement('span');
+                    labelSpan.style.cssText = 'font-size: 0.75rem; color: var(--text-secondary);';
+                    labelSpan.textContent = `avg pairwise correlation — ${corrLabel}`;
+                    statCard.appendChild(valueSpan);
+                    statCard.appendChild(labelSpan);
+                    container.insertBefore(statCard, container.firstChild);
+                }
+
+                // Append footer note
+                const note = document.createElement('p');
+                note.style.cssText = 'font-size: 0.65rem; color: var(--text-muted); margin-top: 0.4rem; text-align: right;';
+                const sourceLabel = data.source === 'yfinance' ? ' · via yfinance' : data.source === 'mixed' ? ' · DB + yfinance' : '';
+                note.textContent = `${data.data_points} trading days · ${data.start_date} → ${data.end_date}${sourceLabel}`;
+                container.appendChild(note);
+            } else {
+                container.innerHTML = '';
+                const msg = document.createElement('p');
+                msg.style.cssText = 'color: var(--text-secondary); font-size: 0.8rem;';
+                msg.textContent = 'Not enough price history for correlation analysis.';
+                container.appendChild(msg);
+            }
+        } catch (e) {
+            section.style.display = 'none';
+        }
+    }
+
+    async showTermStructureModal(ticker) {
+        const modal = document.getElementById('term-structure-modal');
+        const titleEl = document.getElementById('term-structure-title');
+        const loadingEl = document.getElementById('term-structure-loading');
+        const canvas = document.getElementById('term-structure-chart');
+        if (!modal) return;
+
+        // Reset state
+        if (titleEl) titleEl.textContent = ticker;
+        if (loadingEl) loadingEl.style.display = 'block';
+        if (canvas) canvas.style.display = 'none';
+        modal.style.display = 'flex';
+
+        try {
+            const data = await api.getTermStructure(ticker);
+            if (data && data.points && data.points.length > 0) {
+                if (loadingEl) loadingEl.style.display = 'none';
+                if (canvas) canvas.style.display = 'block';
+                chartManager.createTermStructureChart('term-structure-chart', data.points, ticker);
+            } else {
+                if (loadingEl) loadingEl.textContent = 'No options data available for ' + ticker;
+            }
+        } catch (e) {
+            if (loadingEl) loadingEl.textContent = 'Failed to load term structure.';
         }
     }
 
@@ -626,9 +1351,12 @@ class AlphaVelocityApp {
                 console.log('📊 Loaded portfolio from files');
             }
 
-            document.getElementById('total-value').textContent = formatCurrency(portfolio.total_value || 0);
-            document.getElementById('avg-score').textContent = formatScore(portfolio.average_momentum_score || 0);
-            document.getElementById('positions-count').textContent = portfolio.number_of_positions || 0;
+            const elTotal = document.getElementById('total-value');
+            const elScore = document.getElementById('avg-score');
+            const elCount = document.getElementById('positions-count');
+            if (elTotal) elTotal.textContent = formatCurrency(portfolio.total_value || 0);
+            if (elScore) elScore.textContent = formatScore(portfolio.average_momentum_score || 0);
+            if (elCount) elCount.textContent = portfolio.number_of_positions || 0;
         } catch (error) {
             console.error('Failed to load portfolio summary:', error);
         }
@@ -671,50 +1399,147 @@ class AlphaVelocityApp {
         };
     }
 
+    _applyNavVisibility() {
+        const loggedIn = this.authManager && this.authManager.isLoggedIn();
+        document.querySelectorAll('.auth-nav').forEach(btn => {
+            btn.style.display = loggedIn ? '' : 'none';
+        });
+        // If not logged in and dashboard tab is active, switch to search
+        if (!loggedIn) {
+            const activeBtn = document.querySelector('.nav-btn.active');
+            if (activeBtn && activeBtn.dataset.view !== 'search') {
+                activeBtn.classList.remove('active');
+                const searchBtn = document.querySelector('[data-view="search"]');
+                // Keep dashboard view active (it holds the leaderboard) but don't highlight it in nav
+                // — dashboard view stays visible, nav just doesn't show auth tabs
+            }
+        }
+        // Wire the leaderboard CTA to open the login modal (once only)
+        const cta = document.getElementById('leaderboard-login-cta');
+        if (cta) {
+            if (loggedIn) {
+                cta.style.display = 'none';
+            } else if (!cta._wired) {
+                cta._wired = true;
+                cta.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    if (this.authManager) this.authManager.showLoginModal();
+                });
+            }
+        }
+    }
+
     async loadTopMomentum() {
-        const container = document.getElementById('top-momentum-grid');
         const loading = document.getElementById('top-momentum-loading');
+        const table = document.getElementById('leaderboard-table');
+        const thead = document.getElementById('leaderboard-thead');
+        const tbody = document.getElementById('leaderboard-tbody');
+        if (!table) return;
 
         try {
-            loading.style.display = 'block';
-            const topStocks = await api.getTopMomentumStocks(6);
+            const result = await api.getTopMomentumStocks(20);
+            const stocks = result.stocks || result;
+            if (!stocks || stocks.length === 0) throw new Error('No data');
 
-            container.innerHTML = topStocks.map(stock => `
-                <div class="momentum-card">
-                    <div class="momentum-header">
-                        <span class="ticker">${stock.ticker}</span>
-                        <span class="rating" style="color: ${getRatingColor(stock.rating)}">${stock.rating}</span>
-                    </div>
-                    <div class="momentum-score" style="color: ${getScoreColor(stock.composite_score)}">
-                        ${formatScore(stock.composite_score)}
-                    </div>
-                    <div class="momentum-breakdown">
-                        <div class="breakdown-item">
-                            <span>Price</span>
-                            <span>${formatScore(stock.price_momentum)}</span>
-                        </div>
-                        <div class="breakdown-item">
-                            <span>Technical</span>
-                            <span>${formatScore(stock.technical_momentum)}</span>
-                        </div>
-                    </div>
-                </div>
-            `).join('');
+            // Normalise field name — top endpoint uses momentum_score, paginated uses composite_score
+            const safeNum = (v) => (v != null && isFinite(Number(v))) ? Number(v) : null;
+            const rows = stocks.map((s, i) => ({
+                rank: i + 1,
+                ticker: s.ticker,
+                score: safeNum(s.momentum_score ?? s.composite_score) ?? 0,
+                rating: s.rating || '—',
+                price: safeNum(s.price ?? s.current_price),
+            }));
 
-            loading.style.display = 'none';
+            this._leaderboardRows = rows;
+            this._leaderboardSort = { col: 'score', dir: 'desc' };
+            this._renderLeaderboard(thead, tbody, rows);
+
+            if (loading) loading.style.display = 'none';
+            table.style.display = 'table';
         } catch (error) {
-            loading.textContent = 'Failed to load momentum data';
+            if (loading) loading.textContent = 'Failed to load momentum data.';
             console.error('Failed to load top momentum:', error);
         }
     }
 
-    async loadTrendChart() {
-        try {
-            // Create trend chart with sample data
-            chartManager.createTrendChart('trend-chart');
-        } catch (error) {
-            console.error('Failed to load trend chart:', error);
-        }
+    _renderLeaderboard(thead, tbody, rows) {
+        const { col, dir } = this._leaderboardSort;
+
+        // Sort a copy
+        const sorted = [...rows].sort((a, b) => {
+            const av = a[col], bv = b[col];
+            if (av === null || av === undefined) return 1;
+            if (bv === null || bv === undefined) return -1;
+            return dir === 'asc' ? (av > bv ? 1 : -1) : (av < bv ? 1 : -1);
+        });
+
+        const arrow = (c) => c === col ? (dir === 'asc' ? ' ↑' : ' ↓') : '';
+        const cols = [
+            { key: 'rank',   label: '#'      },
+            { key: 'ticker', label: 'Ticker' },
+            { key: 'score',  label: 'Score'  },
+            { key: 'rating', label: 'Rating' },
+            { key: 'price',  label: 'Price'  },
+        ];
+
+        // Header
+        thead.innerHTML = '';
+        const tr = document.createElement('tr');
+        cols.forEach(({ key, label }) => {
+            const th = document.createElement('th');
+            th.className = 'leaderboard-th';
+            th.textContent = label + arrow(key);
+            th.style.cursor = 'pointer';
+            th.addEventListener('click', () => {
+                if (this._leaderboardSort.col === key) {
+                    this._leaderboardSort.dir = this._leaderboardSort.dir === 'asc' ? 'desc' : 'asc';
+                } else {
+                    this._leaderboardSort.col = key;
+                    this._leaderboardSort.dir = key === 'ticker' ? 'asc' : 'desc';
+                }
+                this._renderLeaderboard(thead, tbody, this._leaderboardRows);
+            });
+            tr.appendChild(th);
+        });
+        thead.appendChild(tr);
+
+        // Body
+        tbody.innerHTML = '';
+        sorted.forEach((row, idx) => {
+            const tr = document.createElement('tr');
+            tr.className = 'leaderboard-row';
+
+            const rankTd = document.createElement('td');
+            rankTd.className = 'leaderboard-td leaderboard-rank';
+            rankTd.textContent = idx + 1;
+            tr.appendChild(rankTd);
+
+            const tickerTd = document.createElement('td');
+            tickerTd.className = 'leaderboard-td leaderboard-ticker';
+            tickerTd.textContent = row.ticker;
+            tr.appendChild(tickerTd);
+
+            const scoreTd = document.createElement('td');
+            scoreTd.className = 'leaderboard-td';
+            scoreTd.style.color = getScoreColor(row.score);
+            scoreTd.style.fontWeight = '700';
+            scoreTd.textContent = row.score.toFixed(1);
+            tr.appendChild(scoreTd);
+
+            const ratingTd = document.createElement('td');
+            ratingTd.className = 'leaderboard-td';
+            ratingTd.style.color = getRatingColor(row.rating);
+            ratingTd.textContent = row.rating;
+            tr.appendChild(ratingTd);
+
+            const priceTd = document.createElement('td');
+            priceTd.className = 'leaderboard-td leaderboard-price';
+            priceTd.textContent = row.price != null ? `$${Number(row.price).toFixed(2)}` : '—';
+            tr.appendChild(priceTd);
+
+            tbody.appendChild(tr);
+        });
     }
 
     async loadCategoriesData() {
@@ -723,8 +1548,17 @@ class AlphaVelocityApp {
 
         try {
             loading.style.display = 'block';
-            const response = await api.getAllCategoriesManagement();
+
+            const [response, holdingsData] = await Promise.all([
+                api.getAllCategoriesManagement(),
+                this.currentPortfolioId
+                    ? api.getPortfolioHoldings(this.currentPortfolioId).catch(() => null)
+                    : Promise.resolve(null)
+            ]);
             const categories = response.categories;
+            const ownedTickers = new Set(
+                (holdingsData?.holdings || []).map(h => h.ticker)
+            );
 
             container.innerHTML = categories.map(category => `
                 <div class="category-card" data-category="${category.name}" data-category-id="${category.id}">
@@ -740,43 +1574,21 @@ class AlphaVelocityApp {
                         </div>
                     </div>
                     <div class="category-info">
-                        <div class="ticker-list-container">
-                            <table class="ticker-momentum-table">
-                                <thead>
-                                    <tr>
-                                        <th>Ticker</th>
-                                        <th>Score</th>
-                                        <th>Rating</th>
-                                        <th></th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    ${category.ticker_details.map(detail => {
-                                        const scoreColor = getScoreColor(detail.momentum_score || 0);
-                                        const ratingColor = getRatingColor(detail.rating || 'N/A');
-                                        return `
-                                            <tr>
-                                                <td class="ticker-cell">
-                                                    <strong>${detail.ticker}</strong>
-                                                </td>
-                                                <td class="score-cell">
-                                                    <span class="momentum-score" style="color: ${scoreColor}; font-weight: bold;">
-                                                        ${(detail.momentum_score || 0).toFixed(1)}
-                                                    </span>
-                                                </td>
-                                                <td class="rating-cell">
-                                                    <span class="rating-badge" style="background-color: ${ratingColor};">
-                                                        ${detail.rating || 'N/A'}
-                                                    </span>
-                                                </td>
-                                                <td class="action-cell">
-                                                    <button class="remove-ticker-btn-table" onclick="app.removeTicker(${category.id}, '${detail.ticker}')" title="Remove">×</button>
-                                                </td>
-                                            </tr>
-                                        `;
-                                    }).join('')}
-                                </tbody>
-                            </table>
+                        <div class="ticker-grid">
+                            ${category.ticker_details.map(detail => {
+                                const scoreColor = getScoreColor(detail.momentum_score || 0);
+                                const ratingColor = getRatingColor(detail.rating || 'N/A');
+                                const owned = ownedTickers.has(detail.ticker);
+                                return `
+                                    <div class="ticker-grid-item${owned ? ' ticker-grid-item--owned' : ''}">
+                                        <strong class="ticker-grid-name">${detail.ticker}</strong>
+                                        <span class="ticker-grid-score" style="color: ${scoreColor}">${(detail.momentum_score || 0).toFixed(1)}</span>
+                                        <span class="ticker-grid-rating" style="background: ${ratingColor}20; color: ${ratingColor}">${detail.rating || 'N/A'}</span>
+                                        ${owned ? '<span class="ticker-owned-dot" title="In your portfolio"></span>' : ''}
+                                        <button class="remove-ticker-btn-table" onclick="app.removeTicker(${category.id}, '${detail.ticker}')" title="Remove">×</button>
+                                    </div>
+                                `;
+                            }).join('')}
                         </div>
                     </div>
                     <div class="category-actions">
@@ -818,6 +1630,10 @@ class AlphaVelocityApp {
         `;
 
         document.body.insertAdjacentHTML('beforeend', modalHTML);
+        const overlay = document.getElementById('add-ticker-modal');
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) overlay.remove();
+        });
         document.getElementById('new-ticker-input').focus();
 
         // Allow Enter key to submit
@@ -963,6 +1779,39 @@ class AlphaVelocityApp {
         } catch (error) {
             messageDiv.innerHTML = '<span class="error">Failed to create category. Please try again.</span>';
             console.error('Error creating category:', error);
+        }
+    }
+
+    async refreshMomentumScore() {
+        const btn = document.getElementById('refresh-momentum-btn');
+        if (btn) { btn.textContent = 'Refreshing…'; btn.disabled = true; }
+        try {
+            await api.refreshMomentumCache(true);
+            // Reload the composite score display
+            const portfolioId = this.currentPortfolioId;
+            if (portfolioId) {
+                const compositeData = await fetch(
+                    `${api.baseURL}/database/portfolio/${portfolioId}/composite-momentum?days=90`
+                ).then(r => r.ok ? r.json() : null).catch(() => null);
+
+                if (compositeData && compositeData.current_score !== null) {
+                    const score = compositeData.current_score;
+                    const color = score >= 75 ? '#10b981' : score >= 60 ? '#3b82f6' : score >= 45 ? '#f59e0b' : '#ef4444';
+                    const scoreEl = document.getElementById('composite-score-value');
+                    const ratingEl = document.getElementById('composite-score-rating');
+                    const coverageEl = document.getElementById('composite-score-coverage');
+                    if (scoreEl) { scoreEl.textContent = score.toFixed(1); scoreEl.style.color = color; }
+                    if (ratingEl) { ratingEl.textContent = compositeData.current_rating; ratingEl.style.color = color; ratingEl.style.background = color + '20'; }
+                    if (coverageEl) coverageEl.textContent = `${compositeData.scored_holdings} of ${compositeData.total_holdings} holdings scored`;
+                    if (compositeData.history.length > 1) {
+                        chartManager.createMomentumSparkline('composite-momentum-sparkline', compositeData.history);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('Failed to refresh momentum score:', err);
+        } finally {
+            if (btn) { btn.textContent = 'Refresh Score'; btn.disabled = false; }
         }
     }
 
@@ -1229,19 +2078,15 @@ class AlphaVelocityApp {
                         </div>
                         <div class="component-scores">
                             <div class="component">
-                                <span class="component-label">Price Momentum (40%)</span>
+                                <span class="component-label">Price + Accel (50%)</span>
                                 <span class="component-value" style="color: ${getScoreColor(result.price_momentum)}">${formatScore(result.price_momentum)}</span>
                             </div>
                             <div class="component">
-                                <span class="component-label">Technical Momentum (25%)</span>
+                                <span class="component-label">Technical (35%)</span>
                                 <span class="component-value" style="color: ${getScoreColor(result.technical_momentum)}">${formatScore(result.technical_momentum)}</span>
                             </div>
                             <div class="component">
-                                <span class="component-label">Fundamental Momentum (25%)</span>
-                                <span class="component-value" style="color: ${getScoreColor(result.fundamental_momentum)}">${formatScore(result.fundamental_momentum)}</span>
-                            </div>
-                            <div class="component">
-                                <span class="component-label">Relative Momentum (10%)</span>
+                                <span class="component-label">Relative (15%)</span>
                                 <span class="component-value" style="color: ${getScoreColor(result.relative_momentum)}">${formatScore(result.relative_momentum)}</span>
                             </div>
                         </div>
@@ -1388,6 +2233,28 @@ class AlphaVelocityApp {
 
         // Setup background sync
         this.setupBackgroundSync();
+
+        // Poll for new deploys — show banner if server has newer assets
+        this.checkForUpdates();
+        setInterval(() => this.checkForUpdates(), 5 * 60 * 1000); // every 5 min
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') this.checkForUpdates();
+        });
+    }
+
+    async checkForUpdates() {
+        try {
+            const res = await fetch('/api/version', { cache: 'no-store' });
+            if (!res.ok) return;
+            const { build_hash } = await res.json();
+            const stored = localStorage.getItem('av_build_hash');
+            if (stored && stored !== build_hash) {
+                this.showUpdateAvailable();
+            }
+            localStorage.setItem('av_build_hash', build_hash);
+        } catch {
+            // Network unavailable — silent fail
+        }
     }
 
     async registerServiceWorker() {
@@ -1935,9 +2802,10 @@ class AlphaVelocityApp {
         // Setup event listeners
         this.setupPortfolioBuilderEventListeners();
 
-        // Load transaction history and portfolio summary
+        // Load transaction history, portfolio summary, and watchlist
         await this.loadTransactionHistory();
         await this.updateBuilderPortfolioSummary();
+        await this.loadBuilderWatchlist();
     }
 
     setupPortfolioBuilderEventListeners() {
@@ -1961,6 +2829,17 @@ class AlphaVelocityApp {
             backfillSplitsBtn.addEventListener('click', () => this.backfillSplits());
         }
 
+        const importBtn = document.getElementById('import-transactions-btn');
+        const importFileInput = document.getElementById('import-transactions-file');
+        if (importBtn && importFileInput) {
+            importBtn.addEventListener('click', () => importFileInput.click());
+            importFileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) this.importTransactions(file);
+                importFileInput.value = '';
+            });
+        }
+
         // Enter key support for form fields
         const formInputs = ['transaction-ticker', 'transaction-shares', 'transaction-price'];
         formInputs.forEach(inputId => {
@@ -1977,35 +2856,85 @@ class AlphaVelocityApp {
         if (typeSelect) {
             typeSelect.addEventListener('change', () => this.onTransactionTypeChange());
         }
+
+        // Watchlist controls
+        const populateBtn = document.getElementById('populate-watchlist-btn');
+        if (populateBtn) {
+            populateBtn.addEventListener('click', () => this.populateWatchlistFromCategories());
+        }
+
+        const watchlistAddBtn = document.getElementById('watchlist-add-btn');
+        const watchlistAddInput = document.getElementById('watchlist-add-input');
+        if (watchlistAddBtn) {
+            watchlistAddBtn.addEventListener('click', () => this.addToBuilderWatchlist());
+        }
+        if (watchlistAddInput) {
+            watchlistAddInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') this.addToBuilderWatchlist();
+            });
+        }
     }
 
     onTransactionTypeChange() {
         const type = document.getElementById('transaction-type').value;
+        const tickerGroup = document.getElementById('transaction-ticker').closest('.form-group');
+        const sharesGroup = document.getElementById('transaction-shares').closest('.form-group');
         const sharesLabel = document.querySelector('label[for="transaction-shares"]');
+        const priceLabel = document.querySelector('label[for="transaction-price"]');
         const priceGroup = document.getElementById('transaction-price').closest('.form-group');
         const feesGroup = document.getElementById('transaction-fees').closest('.form-group');
+        const dividendGroup = document.getElementById('dividend-amount-group');
+        const cashAmountGroup = document.getElementById('cash-amount-group');
 
-        if (type === 'SPLIT') {
+        const isCash = type === 'DEPOSIT' || type === 'WITHDRAWAL';
+
+        // Reset to defaults
+        if (tickerGroup) tickerGroup.style.display = '';
+        if (sharesGroup) sharesGroup.style.display = '';
+        if (sharesLabel) sharesLabel.textContent = 'Shares';
+        if (priceLabel) priceLabel.textContent = 'Price per Share';
+        if (priceGroup) priceGroup.style.display = '';
+        if (feesGroup) feesGroup.style.display = '';
+        if (dividendGroup) dividendGroup.style.display = 'none';
+        if (cashAmountGroup) cashAmountGroup.style.display = 'none';
+
+        if (isCash) {
+            if (tickerGroup) tickerGroup.style.display = 'none';
+            if (sharesGroup) sharesGroup.style.display = 'none';
+            if (priceGroup) priceGroup.style.display = 'none';
+            if (feesGroup) feesGroup.style.display = 'none';
+            if (cashAmountGroup) cashAmountGroup.style.display = '';
+        } else if (type === 'SPLIT') {
             if (sharesLabel) sharesLabel.textContent = 'Split Ratio (e.g., 4 for 4:1)';
             if (priceGroup) priceGroup.style.display = 'none';
             if (feesGroup) feesGroup.style.display = 'none';
-        } else {
-            if (sharesLabel) sharesLabel.textContent = 'Shares';
-            if (priceGroup) priceGroup.style.display = '';
-            if (feesGroup) feesGroup.style.display = '';
+        } else if (type === 'REINVEST') {
+            if (sharesLabel) sharesLabel.textContent = 'Shares Received';
+            if (priceLabel) priceLabel.textContent = 'Price per Share (NAV)';
+            if (feesGroup) feesGroup.style.display = 'none';
+            if (dividendGroup) dividendGroup.style.display = '';
         }
     }
 
     async addTransaction() {
-        const ticker = document.getElementById('transaction-ticker').value.trim().toUpperCase();
         const type = document.getElementById('transaction-type').value;
+        const isCash = type === 'DEPOSIT' || type === 'WITHDRAWAL';
+
+        // Route cash transactions separately
+        if (isCash) {
+            return this._addCashTransaction(type);
+        }
+
+        const ticker = document.getElementById('transaction-ticker').value.trim().toUpperCase();
         const shares = parseFloat(document.getElementById('transaction-shares').value);
         const price = parseFloat(document.getElementById('transaction-price').value);
         const date = document.getElementById('transaction-date').value;
         const fees = parseFloat(document.getElementById('transaction-fees').value) || 0;
+        const dividendAmount = parseFloat(document.getElementById('transaction-dividend-amount').value) || null;
         const notes = document.getElementById('transaction-notes').value.trim();
 
         const isSplit = type === 'SPLIT';
+        const isReinvest = type === 'REINVEST';
 
         // Validation
         if (!ticker) {
@@ -2034,8 +2963,9 @@ class AlphaVelocityApp {
             shares: shares,
             price_per_share: isSplit ? 0 : price,
             transaction_date: date,
-            fees: isSplit ? 0 : fees,
-            notes: notes || null
+            fees: isSplit || isReinvest ? 0 : fees,
+            notes: notes || null,
+            ...(isReinvest && dividendAmount ? { dividend_amount: dividendAmount } : {})
         };
 
         try {
@@ -2055,9 +2985,48 @@ class AlphaVelocityApp {
             this.clearTransactionForm();
             await this.loadTransactionHistory();
             await this.updateBuilderPortfolioSummary();
+            if (type === 'BUY' || type === 'SELL') await this.loadBuilderWatchlist();
         } catch (error) {
             console.error('Error adding transaction:', error);
             this.showError(`Error adding transaction: ${error.message || error}. Please try again.`);
+        }
+    }
+
+    async _addCashTransaction(type) {
+        const amount = parseFloat(document.getElementById('transaction-cash-amount').value);
+        const date = document.getElementById('transaction-date').value;
+        const notes = document.getElementById('transaction-notes').value.trim();
+
+        if (!amount || amount <= 0) {
+            this.showError('Please enter a valid amount');
+            return;
+        }
+        if (!date) {
+            this.showError('Please select a date');
+            return;
+        }
+
+        const portfolioId = this.portfolioManager.getSelectedPortfolioId();
+        if (!portfolioId) {
+            this.showError('Please select a portfolio first');
+            return;
+        }
+
+        try {
+            this.showLoading(`Recording ${type.toLowerCase()}...`);
+            await api.addCashTransaction(portfolioId, {
+                transaction_type: type,
+                amount,
+                transaction_date: date,
+                notes: notes || null
+            });
+            this.showSuccess(`${type === 'DEPOSIT' ? 'Deposit' : 'Withdrawal'} recorded successfully!`);
+            this.clearTransactionForm();
+            await this.loadTransactionHistory();
+            await this.updateBuilderPortfolioSummary();
+        } catch (error) {
+            console.error('Error recording cash transaction:', error);
+            this.showError(`Error: ${error.message || error}`);
         }
     }
 
@@ -2068,6 +3037,8 @@ class AlphaVelocityApp {
         document.getElementById('transaction-price').value = '';
         document.getElementById('transaction-fees').value = '';
         document.getElementById('transaction-notes').value = '';
+        const cashAmountEl = document.getElementById('transaction-cash-amount');
+        if (cashAmountEl) cashAmountEl.value = '';
 
         // Set today's date as default
         const today = new Date().toISOString().split('T')[0];
@@ -2108,6 +3079,37 @@ class AlphaVelocityApp {
         }
     }
 
+    async importTransactions(file) {
+        const portfolioId = this.portfolioManager.getSelectedPortfolioId();
+        if (!portfolioId) {
+            this.showError('Please select a portfolio first');
+            return;
+        }
+
+        try {
+            this.showLoading(`Importing transactions from ${file.name}...`);
+            const result = await api.uploadTransactions(portfolioId, file);
+
+            let msg = `Imported ${result.imported} transaction(s)`;
+            if (result.skipped > 0) msg += `, skipped ${result.skipped}`;
+            if (result.errors && result.errors.length > 0) {
+                const errDetails = result.errors.map(e => `${e.symbol || '?'} (${e.action}): ${e.reason}`).join('; ');
+                msg += `. Errors: ${errDetails}`;
+                this.showError(msg);
+            } else {
+                this.showSuccess(msg);
+            }
+
+            if (result.imported > 0) {
+                await this.loadTransactionHistory();
+                await this.updateBuilderPortfolioSummary();
+            }
+        } catch (error) {
+            console.error('Error importing transactions:', error);
+            this.showError(`Import failed: ${error.message || error}`);
+        }
+    }
+
     async loadTransactionHistory() {
         const historyContainer = document.getElementById('transaction-history');
 
@@ -2119,38 +3121,79 @@ class AlphaVelocityApp {
         }
 
         try {
-            const data = await api.getTransactionHistoryPaginated(portfolioId, {
-                page: this.transactionPage,
-                pageSize: 20
-            });
+            const [data, cashData] = await Promise.all([
+                api.getTransactionHistoryPaginated(portfolioId, {
+                    page: this.transactionPage,
+                    pageSize: 20
+                }),
+                fetch(`${api.baseURL}/user/portfolios/${portfolioId}/cash-transactions?limit=100`, {
+                    headers: { ...api.authManager.getAuthHeader() }
+                }).then(r => r.ok ? r.json() : { transactions: [], cash_balance: 0 }).catch(() => ({ transactions: [], cash_balance: 0 }))
+            ]);
             const transactions = data.items || [];
             const metadata = data.metadata || {};
+            const cashTransactions = (cashData.transactions || []).map(t => ({ ...t, _isCash: true }));
+            const cashBalance = cashData.cash_balance || 0;
 
-            if (transactions.length === 0 && this.transactionPage === 1) {
+            if (transactions.length === 0 && cashTransactions.length === 0 && this.transactionPage === 1) {
                 historyContainer.innerHTML = '<div class="no-transactions">No transactions yet. Add your first transaction above!</div>';
                 return;
             }
 
+            // On page 1, merge cash transactions into the list, sorted by date desc
+            let allItems = [...transactions];
+            if (this.transactionPage === 1 && cashTransactions.length > 0) {
+                const merged = [...transactions.map(t => ({ ...t, _date: t.transaction_date })),
+                                ...cashTransactions.map(t => ({ ...t, _date: t.transaction_date }))];
+                merged.sort((a, b) => b._date.localeCompare(a._date));
+                allItems = merged;
+            }
+
+            const renderItem = txn => txn._isCash
+                ? `<div class="transaction-item ${txn.transaction_type.toLowerCase()}" style="border-left:3px solid var(--accent-light)">
+                    <div class="transaction-main">
+                        <div class="transaction-ticker">CASH</div>
+                        <div class="transaction-type-badge ${txn.transaction_type.toLowerCase()}">${txn.transaction_type}</div>
+                        <div class="transaction-amount">${txn.transaction_type === 'DEPOSIT' ? '+' : '-'}$${(txn.amount || 0).toFixed(2)}</div>
+                        <div class="transaction-total"></div>
+                    </div>
+                    <div class="transaction-details">
+                        <span class="transaction-date">${new Date(txn.transaction_date).toLocaleDateString()}</span>
+                        ${txn.notes ? `<span class="transaction-notes">${txn.notes}</span>` : ''}
+                    </div>
+                    <div class="transaction-actions"></div>
+                  </div>`
+                : `<div class="transaction-item ${txn.transaction_type.toLowerCase()}" data-transaction-id="${txn.id}">
+                    <div class="transaction-main">
+                        <div class="transaction-ticker">${txn.ticker}</div>
+                        <div class="transaction-type-badge ${txn.transaction_type.toLowerCase()}">${txn.transaction_type}</div>
+                        <div class="transaction-amount">${
+                            txn.transaction_type === 'SPLIT' ? `${txn.shares}:1 split` :
+                            txn.transaction_type === 'DIVIDEND' ? `Dividend` :
+                            `${txn.shares} shares @ $${(txn.price_per_share || 0).toFixed(2)}`
+                        }</div>
+                        <div class="transaction-total">${txn.transaction_type === 'SPLIT' ? '-' : `$${(txn.total_amount || 0).toFixed(2)}`}</div>
+                    </div>
+                    <div class="transaction-details">
+                        <span class="transaction-date">${new Date(txn.transaction_date).toLocaleDateString()}</span>
+                        ${txn.fees > 0 ? `<span class="transaction-fees">Fees: $${txn.fees.toFixed(2)}</span>` : ''}
+                        ${txn.notes ? `<span class="transaction-notes">${txn.notes}</span>` : ''}
+                    </div>
+                    <div class="transaction-actions">
+                        <button class="btn-delete-transaction" onclick="window.app.deleteTransaction(${txn.id}, ${portfolioId})">Delete</button>
+                    </div>
+                  </div>`;
+
+            const cashBalanceBar = cashBalance !== 0 ? `
+                <div style="padding:0.5rem 0.75rem;font-size:0.8rem;color:var(--text-secondary);border-bottom:1px solid var(--border);display:flex;justify-content:space-between">
+                    <span>Cash Balance</span>
+                    <strong style="color:${cashBalance < 0 ? '#ef4444' : '#10b981'}">$${cashBalance.toLocaleString('en-US', {minimumFractionDigits:2,maximumFractionDigits:2})}</strong>
+                </div>` : '';
+
             const historyHTML = `
                 <div class="transaction-list">
-                    ${transactions.map(txn => `
-                        <div class="transaction-item ${txn.transaction_type.toLowerCase()}" data-transaction-id="${txn.id}">
-                            <div class="transaction-main">
-                                <div class="transaction-ticker">${txn.ticker}</div>
-                                <div class="transaction-type-badge ${txn.transaction_type.toLowerCase()}">${txn.transaction_type}</div>
-                                <div class="transaction-amount">${txn.transaction_type === 'SPLIT' ? `${txn.shares}:1 split` : `${txn.shares} shares @ $${txn.price_per_share.toFixed(2)}`}</div>
-                                <div class="transaction-total">${txn.transaction_type === 'SPLIT' ? '-' : `$${txn.total_amount.toFixed(2)}`}</div>
-                            </div>
-                            <div class="transaction-details">
-                                <span class="transaction-date">${new Date(txn.transaction_date).toLocaleDateString()}</span>
-                                ${txn.fees > 0 ? `<span class="transaction-fees">Fees: $${txn.fees.toFixed(2)}</span>` : ''}
-                                ${txn.notes ? `<span class="transaction-notes">${txn.notes}</span>` : ''}
-                            </div>
-                            <div class="transaction-actions">
-                                <button class="btn-delete-transaction" onclick="window.app.deleteTransaction(${txn.id}, ${portfolioId})">Delete</button>
-                            </div>
-                        </div>
-                    `).join('')}
+                    ${cashBalanceBar}
+                    ${allItems.map(renderItem).join('')}
                 </div>
                 <div id="transaction-pagination"></div>
             `;
@@ -2236,17 +3279,26 @@ class AlphaVelocityApp {
         const summaryContainer = document.getElementById('builder-portfolio-summary');
 
         try {
-            const response = await api.request(`/database/portfolio/${this.currentPortfolioId}/categories-detailed`);
+            const portfolioId = this.currentPortfolioId;
+            const [detailsResp, holdingsResp] = await Promise.all([
+                api.request(`/database/portfolio/${portfolioId}/categories-detailed`),
+                fetch(`${api.baseURL}/user/portfolios/${portfolioId}/holdings`, {
+                    headers: { ...api.authManager.getAuthHeader() }
+                }).then(r => r.ok ? r.json() : null).catch(() => null)
+            ]);
 
-            if (response.ok) {
-                const data = await response.json();
+            const cashBalance = holdingsResp ? (holdingsResp.cash_balance || 0) : 0;
+
+            if (detailsResp.ok) {
+                const data = await detailsResp.json();
 
                 if (!data.categories || data.categories.length === 0) {
                     summaryContainer.innerHTML = '<div class="empty-portfolio">No holdings yet. Add transactions to build your portfolio!</div>';
                     return;
                 }
 
-                const totalValue = data.total_portfolio_value || 0;
+                const securitiesValue = data.total_portfolio_value || 0;
+                const totalValue = securitiesValue + cashBalance;
                 const totalPositions = data.total_positions || 0;
 
                 // Calculate total cost basis
@@ -2255,7 +3307,7 @@ class AlphaVelocityApp {
                     totalCostBasis += category.total_cost_basis || 0;
                 });
 
-                const totalGainLoss = totalValue - totalCostBasis;
+                const totalGainLoss = securitiesValue - totalCostBasis;
                 const totalGainLossPercent = totalCostBasis > 0 ? (totalGainLoss / totalCostBasis) * 100 : 0;
                 const gainLossColor = totalGainLoss >= 0 ? '#10b981' : '#ef4444';
 
@@ -2266,7 +3318,15 @@ class AlphaVelocityApp {
                             <div class="stat-value">${formatCurrency(totalValue)}</div>
                         </div>
                         <div class="builder-stat">
-                            <div class="stat-label">Total Cost</div>
+                            <div class="stat-label">Securities</div>
+                            <div class="stat-value">${formatCurrency(securitiesValue)}</div>
+                        </div>
+                        <div class="builder-stat">
+                            <div class="stat-label">Cash</div>
+                            <div class="stat-value" style="color: ${cashBalance < 0 ? '#ef4444' : 'inherit'}">${formatCurrency(cashBalance)}</div>
+                        </div>
+                        <div class="builder-stat">
+                            <div class="stat-label">Cost Basis</div>
                             <div class="stat-value">${formatCurrency(totalCostBasis)}</div>
                         </div>
                         <div class="builder-stat">

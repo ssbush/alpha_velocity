@@ -206,43 +206,43 @@ class AlphaVelocityAPI {
         return this.request('/database/status');
     }
 
-    // Get user portfolios from database
-    async getUserPortfolios(userId = 1) {
-        return this.request(`/database/portfolios?user_id=${userId}`);
+    // Get user portfolios (authenticated)
+    async getUserPortfolios() {
+        return this.request('/user/portfolios');
     }
 
-    // Get portfolio holdings from database
+    // Get portfolio holdings (authenticated)
     async getPortfolioHoldings(portfolioId) {
-        return this.request(`/database/portfolio/${portfolioId}/holdings`);
+        return this.request(`/user/portfolios/${portfolioId}/holdings`);
     }
 
-    // Get portfolio-specific category targets
+    // Get portfolio-specific category targets (authenticated)
     async getPortfolioCategoryTargets(portfolioId) {
-        return this.request(`/database/portfolio/${portfolioId}/category-targets`);
+        return this.request(`/user/portfolios/${portfolioId}/category-targets`);
     }
 
-    // Set portfolio-specific category target
+    // Set portfolio-specific category target (authenticated)
     async setPortfolioCategoryTarget(portfolioId, categoryId, targetPct) {
-        return this.request(`/database/portfolio/${portfolioId}/category-targets?category_id=${categoryId}&target_pct=${targetPct}`, {
+        return this.request(`/user/portfolios/${portfolioId}/category-targets?category_id=${categoryId}&target_pct=${targetPct}`, {
             method: 'POST'
         });
     }
 
-    // Reset portfolio to use global defaults
+    // Reset portfolio to use global defaults (authenticated)
     async resetPortfolioTargets(portfolioId) {
-        return this.request(`/database/portfolio/${portfolioId}/reset-targets`, {
+        return this.request(`/user/portfolios/${portfolioId}/reset-targets`, {
             method: 'POST'
         });
     }
 
-    // Get portfolio category analysis from database
+    // Get portfolio category analysis (authenticated)
     async getPortfolioCategoryAnalysis(portfolioId) {
-        return this.request(`/database/portfolio/${portfolioId}/categories`);
+        return this.request(`/user/portfolios/${portfolioId}/categories`);
     }
 
-    // Get portfolio holdings organized by categories
+    // Get portfolio holdings organized by categories (authenticated)
     async getPortfolioByCategories(portfolioId) {
-        return this.request(`/database/portfolio/${portfolioId}/categories-detailed`);
+        return this.request(`/user/portfolios/${portfolioId}/categories-detailed`);
     }
 
     // Add transaction to portfolio (authenticated)
@@ -255,10 +255,42 @@ class AlphaVelocityAPI {
         params.append('transaction_date', transactionData.transaction_date);
         if (transactionData.fees) params.append('fees', transactionData.fees);
         if (transactionData.notes) params.append('notes', transactionData.notes);
+        if (transactionData.dividend_amount) params.append('dividend_amount', transactionData.dividend_amount);
 
         return this.request(`/user/portfolios/${portfolioId}/transactions?${params}`, {
             method: 'POST'
         });
+    }
+
+    // Add a cash deposit or withdrawal (authenticated)
+    async addCashTransaction(portfolioId, data) {
+        const params = new URLSearchParams();
+        params.append('transaction_type', data.transaction_type);
+        params.append('amount', data.amount);
+        params.append('transaction_date', data.transaction_date);
+        if (data.notes) params.append('notes', data.notes);
+        return this.request(`/user/portfolios/${portfolioId}/cash-transactions?${params}`, {
+            method: 'POST'
+        });
+    }
+
+    // Upload a brokerage transaction JSON file to import transactions (authenticated)
+    async uploadTransactions(portfolioId, file) {
+        const formData = new FormData();
+        formData.append('file', file);
+        const headers = this.authManager ? { ...this.authManager.getAuthHeader() } : {};
+        const csrfToken = getCookie('_csrf_token');
+        if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+        const response = await fetch(`${this.baseURL}/user/portfolios/${portfolioId}/transactions/upload`, {
+            method: 'POST',
+            headers,
+            body: formData
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ detail: response.statusText }));
+            throw new Error(err.detail || 'Upload failed');
+        }
+        return response.json();
     }
 
     // Backfill historical stock splits for a portfolio (authenticated)
@@ -304,6 +336,12 @@ class AlphaVelocityAPI {
         });
     }
 
+    async refreshMomentumCache(force = true) {
+        return this.request(`/cache/daily/update?force=${force}`, {
+            method: 'POST'
+        });
+    }
+
     // Get watchlist for custom portfolio
     async getCustomWatchlist(portfolio, minScore = 70.0) {
         return this.request(`/watchlist/custom?min_score=${minScore}`, {
@@ -318,6 +356,45 @@ class AlphaVelocityAPI {
             method: 'POST',
             body: JSON.stringify({ holdings: portfolio })
         });
+    }
+
+    // Get implied volatility and IVR for a ticker
+    async getIVData(ticker) {
+        return this.request(`/api/v1/options/iv/${ticker.toUpperCase()}`);
+    }
+
+    // Portfolio watchlist
+    async getPortfolioWatchlist(portfolioId) {
+        return this.request(`/api/v1/user/portfolios/${portfolioId}/watchlist`);
+    }
+
+    async addToPortfolioWatchlist(portfolioId, tickers) {
+        return this.request(`/api/v1/user/portfolios/${portfolioId}/watchlist`, {
+            method: 'POST',
+            body: JSON.stringify({ tickers: Array.isArray(tickers) ? tickers : [tickers] })
+        });
+    }
+
+    async removeFromPortfolioWatchlist(portfolioId, ticker) {
+        return this.request(`/api/v1/user/portfolios/${portfolioId}/watchlist/${ticker.toUpperCase()}`, {
+            method: 'DELETE'
+        });
+    }
+
+    async populateWatchlistFromCategories(portfolioId) {
+        return this.request(`/api/v1/user/portfolios/${portfolioId}/watchlist/populate`, {
+            method: 'POST'
+        });
+    }
+
+    // Get pairwise correlation matrix for portfolio holdings
+    async getCorrelationMatrix(portfolioId, days = 90) {
+        return this.request(`/api/v1/analytics/portfolios/${portfolioId}/correlation-matrix?days=${days}`);
+    }
+
+    // Get volatility term structure for a ticker
+    async getTermStructure(ticker) {
+        return this.request(`/api/v1/options/term-structure/${ticker.toUpperCase()}`);
     }
 }
 

@@ -7,6 +7,7 @@ import logging
 from typing import Any, Optional, List, Dict
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import text
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 from ..models.database import (
     Portfolio, Holding, Transaction, SecurityMaster,
-    Category, PerformanceSnapshot
+    Category, PerformanceSnapshot, CashTransaction
 )
 
 
@@ -110,35 +111,9 @@ class UserPortfolioService:
             Holding.portfolio_id == portfolio_id
         ).join(SecurityMaster).all()
 
-        # Get category mapping from portfolio service
-        try:
-            from ..services.portfolio_service import PortfolioService
-            from ..services.momentum_engine import MomentumEngine
-            momentum_engine = MomentumEngine()
-            portfolio_service = PortfolioService(momentum_engine)
-            categories = portfolio_service.get_all_categories()
-
-            # Build ticker to category mapping
-            ticker_to_category = {}
-            for category_name, category_info in categories.items():
-                for ticker in category_info['tickers']:
-                    ticker_to_category[ticker] = category_name
-        except Exception as e:
-            logger.warning("Could not load category mapping: %s", e)
-            ticker_to_category = {}
-
         result = []
         for holding in holdings:
-            # Use database category if set, otherwise lookup from portfolio service
-            category_name = None
-            if holding.category:
-                category_name = holding.category.name
-            else:
-                category_name = ticker_to_category.get(holding.security.ticker)
-
-            if not category_name:
-                category_name = "Other Holdings"
-
+            category_name = holding.category.name if holding.category else "Uncategorized"
             result.append({
                 'id': holding.id,
                 'ticker': holding.security.ticker,
@@ -170,10 +145,18 @@ class UserPortfolioService:
         # Get or create security
         security = self._get_or_create_security(ticker)
 
-        # Get category if provided
+        # Get category — use provided name, or look up from category_securities
         category = None
         if category_name:
             category = self.db.query(Category).filter(Category.name == category_name).first()
+        if not category:
+            security_for_lookup = self._get_or_create_security(ticker)
+            row = self.db.execute(
+                text("SELECT category_id FROM category_securities WHERE security_id = :sid LIMIT 1"),
+                {"sid": security_for_lookup.id}
+            ).fetchone()
+            if row:
+                category = self.db.query(Category).filter(Category.id == row[0]).first()
 
         # Check if holding exists
         holding = self.db.query(Holding).filter(
@@ -243,7 +226,8 @@ class UserPortfolioService:
         price_per_share: Decimal,
         transaction_date: date,
         fees: Decimal = Decimal('0'),
-        notes: Optional[str] = None
+        notes: Optional[str] = None,
+        dividend_amount: Optional[Decimal] = None
     ) -> Transaction:
         """Add a transaction and update holdings"""
         # Validate portfolio ownership
@@ -273,8 +257,13 @@ class UserPortfolioService:
             if not existing_holding:
                 raise ValueError(f"No existing holding for {ticker} to apply split")
 
-        # Calculate total amount
-        total_amount = shares * price_per_share + fees
+        # Calculate total amount.
+        # BUY/REINVEST: cost = shares * price + fees (cash out)
+        # SELL: proceeds = shares * price - fees (cash in, net of fees)
+        if transaction_type.upper() == 'SELL':
+            total_amount = shares * price_per_share - fees
+        else:
+            total_amount = shares * price_per_share + fees
 
         # Create transaction — store shares as positive for BUY and SPLIT
         transaction = Transaction(
@@ -282,11 +271,12 @@ class UserPortfolioService:
             security_id=security.id,
             transaction_type=transaction_type.upper(),
             transaction_date=transaction_date,
-            shares=shares if transaction_type.upper() in ['BUY', 'SPLIT'] else -shares,
+            shares=shares if transaction_type.upper() in ['BUY', 'SPLIT', 'REINVEST'] else -shares,
             price_per_share=price_per_share,
             total_amount=total_amount,
             fees=fees,
-            notes=notes
+            notes=notes,
+            dividend_rate=dividend_amount
         )
 
         self.db.add(transaction)
@@ -294,6 +284,13 @@ class UserPortfolioService:
         # Update holdings based on transaction type
         if transaction_type.upper() in ['BUY', 'SELL', 'REINVEST', 'SPLIT']:
             self._update_holding_from_transaction(portfolio_id, security.id, transaction)
+
+        # Adjust cash balance: BUY/REINVEST reduces cash, SELL increases cash
+        # total_amount is already signed correctly for each type (see calculation above)
+        if transaction_type.upper() in ('BUY', 'REINVEST'):
+            portfolio.cash_balance = (portfolio.cash_balance or Decimal('0')) - total_amount
+        elif transaction_type.upper() == 'SELL':
+            portfolio.cash_balance = (portfolio.cash_balance or Decimal('0')) + total_amount
 
         self.db.commit()
         self.db.refresh(transaction)
@@ -329,7 +326,7 @@ class UserPortfolioService:
                 'transaction_type': txn.transaction_type,
                 'transaction_date': txn.transaction_date.isoformat(),
                 'shares': float(txn.shares),
-                'price_per_share': float(txn.price_per_share) if txn.price_per_share else None,
+                'price_per_share': float(txn.price_per_share) if txn.price_per_share is not None else None,
                 'total_amount': float(txn.total_amount),
                 'fees': float(txn.fees),
                 'notes': txn.notes
@@ -369,6 +366,81 @@ class UserPortfolioService:
         self._recalculate_holding(portfolio_id, security_id)
 
         return True
+
+    def add_cash_transaction(
+        self,
+        portfolio_id: int,
+        user_id: int,
+        transaction_type: str,
+        amount: Decimal,
+        transaction_date: date,
+        notes: Optional[str] = None,
+    ) -> CashTransaction:
+        """Record a cash deposit or withdrawal and update portfolio cash_balance."""
+        portfolio = self.get_portfolio(portfolio_id, user_id)
+        if not portfolio:
+            raise ValueError("Portfolio not found")
+
+        transaction_type = transaction_type.upper()
+        if transaction_type not in ('DEPOSIT', 'WITHDRAWAL'):
+            raise ValueError("transaction_type must be DEPOSIT or WITHDRAWAL")
+        if amount <= 0:
+            raise ValueError("amount must be positive")
+
+        cash_txn = CashTransaction(
+            portfolio_id=portfolio_id,
+            transaction_type=transaction_type,
+            transaction_date=transaction_date,
+            amount=amount,
+            notes=notes,
+        )
+        self.db.add(cash_txn)
+
+        if transaction_type == 'DEPOSIT':
+            portfolio.cash_balance = (portfolio.cash_balance or Decimal('0')) + amount
+        else:
+            portfolio.cash_balance = (portfolio.cash_balance or Decimal('0')) - amount
+
+        self.db.commit()
+        self.db.refresh(cash_txn)
+        return cash_txn
+
+    def get_cash_balance(self, portfolio_id: int, user_id: int) -> float:
+        """Return the current cash balance for a portfolio."""
+        portfolio = self.get_portfolio(portfolio_id, user_id)
+        if not portfolio:
+            return 0.0
+        return float(portfolio.cash_balance or 0)
+
+    def get_cash_transactions(
+        self,
+        portfolio_id: int,
+        user_id: int,
+        limit: Optional[int] = 100,
+    ) -> List[Dict[str, Any]]:
+        """Return cash deposit/withdrawal history for a portfolio."""
+        portfolio = self.get_portfolio(portfolio_id, user_id)
+        if not portfolio:
+            return []
+
+        query = (
+            self.db.query(CashTransaction)
+            .filter(CashTransaction.portfolio_id == portfolio_id)
+            .order_by(CashTransaction.transaction_date.desc())
+        )
+        if limit is not None:
+            query = query.limit(limit)
+
+        return [
+            {
+                'id': t.id,
+                'transaction_type': t.transaction_type,
+                'transaction_date': t.transaction_date.isoformat(),
+                'amount': float(t.amount),
+                'notes': t.notes,
+            }
+            for t in query.all()
+        ]
 
     def _recalculate_holding(self, portfolio_id: int, security_id: int) -> None:
         """Recalculate holdings from all transactions for a specific security"""
@@ -449,6 +521,7 @@ class UserPortfolioService:
             'created_at': portfolio.created_at.isoformat(),
             'total_positions': total_positions,
             'total_cost_basis': total_cost_basis,
+            'cash_balance': float(portfolio.cash_balance or 0),
             'holdings': holdings
         }
 
@@ -479,6 +552,7 @@ class UserPortfolioService:
 
         for portfolio in portfolios:
             holdings = all_holdings_by_portfolio[portfolio.id]
+            cash_balance = float(portfolio.cash_balance or 0)
 
             total_positions = len(holdings)
             total_cost_basis = 0
@@ -497,6 +571,9 @@ class UserPortfolioService:
                 else:
                     total_current_value += cost_basis
 
+            # Include cash in total portfolio value
+            total_current_value += cash_balance
+
             total_return = 0
             total_return_pct = 0
             if total_cost_basis > 0:
@@ -508,6 +585,7 @@ class UserPortfolioService:
                 'name': portfolio.name,
                 'description': portfolio.description,
                 'total_positions': total_positions,
+                'cash_balance': round(cash_balance, 2),
                 'total_value': round(total_current_value, 2),
                 'total_cost_basis': round(total_cost_basis, 2),
                 'total_return': round(total_return, 2),
@@ -693,10 +771,18 @@ class UserPortfolioService:
                 holding.shares = new_shares
                 holding.total_cost_basis = holding.shares * holding.average_cost_basis
             else:
-                # Create new holding
+                # Create new holding — look up category from category_securities
+                category_id = None
+                row = self.db.execute(
+                    text("SELECT category_id FROM category_securities WHERE security_id = :sid LIMIT 1"),
+                    {"sid": security_id}
+                ).fetchone()
+                if row:
+                    category_id = row[0]
                 holding = Holding(
                     portfolio_id=portfolio_id,
                     security_id=security_id,
+                    category_id=category_id,
                     shares=transaction.shares,
                     average_cost_basis=transaction.price_per_share,
                     total_cost_basis=transaction.shares * transaction.price_per_share

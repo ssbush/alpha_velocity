@@ -3,9 +3,12 @@ Backfill price_history and performance_snapshots for all portfolio tickers.
 
 Run from repo root:
     python -m scripts.backfill_prices_and_snapshots
+    python -m scripts.backfill_prices_and_snapshots --days 365
+    python -m scripts.backfill_prices_and_snapshots --start 2024-01-01
 """
 import sys
 import os
+import argparse
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import logging
@@ -17,72 +20,140 @@ import pandas as pd
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-START_DATE = "2025-08-01"   # pull from here to capture any gaps
-END_DATE   = date.today().isoformat()
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Backfill price history and portfolio snapshots")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--days", type=int, default=365,
+                       help="Number of calendar days back to fetch (default: 365)")
+    group.add_argument("--start", type=str,
+                       help="Explicit start date in YYYY-MM-DD format")
+    return parser.parse_args()
 
 
-def run():
+def get_all_tickers():
+    """Return every ticker across all PORTFOLIO_CATEGORIES, DEFAULT_PORTFOLIO, and security_master."""
+    from backend.config.portfolio_config import PORTFOLIO_CATEGORIES, DEFAULT_PORTFOLIO
+    tickers = set(DEFAULT_PORTFOLIO.keys())
+    for category in PORTFOLIO_CATEGORIES.values():
+        tickers.update(category.get("tickers", []))
+
+    # Also include any tickers already tracked in the DB (e.g. user watchlists/portfolios)
+    try:
+        from backend.database.config import db_config
+        from backend.models.database import SecurityMaster
+        db_config.initialize_engine()
+        with db_config.get_session_context() as session:
+            db_tickers = [row.ticker for row in session.query(SecurityMaster.ticker).filter(SecurityMaster.is_active == True).all()]
+        tickers.update(db_tickers)
+    except Exception as e:
+        logger.warning("Could not load tickers from security_master: %s", e)
+
+    return sorted(tickers)
+
+
+def ensure_security_master(session, tickers):
+    """Upsert SecurityMaster rows for every ticker; return {ticker: id} map."""
+    from backend.models.database import SecurityMaster
+
+    existing = {
+        row.ticker: row.id
+        for row in session.query(SecurityMaster.ticker, SecurityMaster.id).all()
+    }
+    missing = [t for t in tickers if t not in existing]
+    if missing:
+        logger.info("Creating %d new SecurityMaster entries: %s", len(missing), missing)
+        for ticker in missing:
+            sm = SecurityMaster(ticker=ticker, security_type="STOCK", is_active=True)
+            session.add(sm)
+        session.flush()
+        new_rows = (
+            session.query(SecurityMaster.ticker, SecurityMaster.id)
+            .filter(SecurityMaster.ticker.in_(missing))
+            .all()
+        )
+        for row in new_rows:
+            existing[row.ticker] = row.id
+
+    return existing
+
+
+def run(days: int = None, start: str = None):
+    """
+    Backfill prices and snapshots.
+    When called programmatically, pass days or start directly.
+    When called from the CLI, arguments are read from sys.argv.
+    """
+    if days is None and start is None:
+        args = parse_args()
+        start = args.start
+        days = args.days
+
+    if start:
+        start_date = start
+    else:
+        start_date = (date.today() - timedelta(days=days or 365)).isoformat()
+    end_date = date.today().isoformat()
+
+    logger.info("Backfilling price history from %s to %s", start_date, end_date)
+
     from backend.database.config import db_config
     db_config.initialize_engine()
 
-    from backend.models.database import SecurityMaster, PriceHistory, Portfolio, Holding
-    from sqlalchemy import tuple_
+    from backend.models.database import PriceHistory
 
-    # ── 1. Get all tickers that are held in any active portfolio ──────────
+    # 1. Collect all tickers
+    tickers = get_all_tickers()
+    logger.info("Found %d tickers to backfill", len(tickers))
+
+    # 2. Ensure SecurityMaster rows exist
     with db_config.get_session_context() as session:
-        rows = (
-            session.query(SecurityMaster.id, SecurityMaster.ticker)
-            .join(Holding, Holding.security_id == SecurityMaster.id)
-            .join(Portfolio, Portfolio.id == Holding.portfolio_id)
-            .filter(Portfolio.is_active == True)
-            .distinct()
-            .all()
-        )
-        ticker_to_id = {r.ticker: r.id for r in rows}
+        ticker_to_id = ensure_security_master(session, tickers)
+        session.commit()
 
-    tickers = sorted(ticker_to_id.keys())
-    logger.info("Backfilling %d tickers: %s", len(tickers), tickers)
-
-    # ── 2. Download historical closes from yfinance in one batch ──────────
-    logger.info("Downloading price history from %s to %s …", START_DATE, END_DATE)
+    # 3. Download historical closes from yfinance in one batch
+    logger.info("Downloading from yfinance ...")
     raw = yf.download(
         tickers,
-        start=START_DATE,
-        end=END_DATE,
+        start=start_date,
+        end=end_date,
         auto_adjust=True,
         progress=False,
     )
 
     if raw.empty:
-        logger.error("yfinance returned no data")
+        logger.error("yfinance returned no data -- aborting")
         return
 
-    # yfinance returns MultiIndex columns (field, ticker) when >1 ticker
     if isinstance(raw.columns, pd.MultiIndex):
         closes = raw["Close"]
     else:
         closes = raw[["Close"]].rename(columns={"Close": tickers[0]})
 
     closes = closes.dropna(how="all")
-    logger.info("Downloaded %d trading days", len(closes))
+    logger.info("Downloaded %d trading days across %d tickers", len(closes), closes.shape[1])
 
-    # ── 3. Fetch existing (security_id, price_date) pairs to skip ─────────
+    # 4. Fetch existing (security_id, price_date) pairs to skip
     with db_config.get_session_context() as session:
         existing = set(
             session.query(PriceHistory.security_id, PriceHistory.price_date).all()
         )
+    logger.info("DB already has %d price rows", len(existing))
 
-    # ── 4. Build rows to insert ───────────────────────────────────────────
+    # 5. Build rows to insert
     to_insert = []
+    skipped = 0
     for price_date, row in closes.iterrows():
         pd_date = price_date.date() if hasattr(price_date, "date") else price_date
-        for ticker, security_id in ticker_to_id.items():
-            if ticker not in row.index:
+        for ticker in tickers:
+            security_id = ticker_to_id.get(ticker)
+            if security_id is None or ticker not in row.index:
                 continue
             price = row[ticker]
             if pd.isna(price) or price <= 0:
                 continue
             if (security_id, pd_date) in existing:
+                skipped += 1
                 continue
             to_insert.append(PriceHistory(
                 security_id=security_id,
@@ -90,43 +161,45 @@ def run():
                 close_price=round(float(price), 4),
             ))
 
-    logger.info("Inserting %d new price rows …", len(to_insert))
+    logger.info(
+        "Inserting %d new rows (%d already existed, skipped)",
+        len(to_insert), skipped
+    )
 
-    # Batch insert in chunks of 500
     CHUNK = 500
+    inserted = 0
     with db_config.get_session_context() as session:
         for i in range(0, len(to_insert), CHUNK):
             session.bulk_save_objects(to_insert[i:i + CHUNK])
+            inserted += len(to_insert[i:i + CHUNK])
+            logger.info("  ... %d / %d rows committed", inserted, len(to_insert))
         session.commit()
 
-    logger.info("Price backfill complete.")
+    logger.info("Price backfill complete: %d rows inserted.", inserted)
 
-    # ── 5. Re-run snapshot backfill for all active portfolios ─────────────
+    # 6. Re-run snapshot backfill for all active portfolios
     from backend.services.snapshot_service import SnapshotService
-    from backend.models.database import Portfolio as PortfolioModel
+    from backend.models.database import Portfolio
 
     svc = SnapshotService(db_config)
 
     with db_config.get_session_context() as session:
-        portfolio_ids = [
-            r[0] for r in
-            session.query(PortfolioModel.id, PortfolioModel.name)
-            .filter(PortfolioModel.is_active == True)
+        portfolios = (
+            session.query(Portfolio.id, Portfolio.name)
+            .filter(Portfolio.is_active == True)
             .all()
-        ]
-        portfolio_names = {
-            r[0]: r[1] for r in
-            session.query(PortfolioModel.id, PortfolioModel.name)
-            .filter(PortfolioModel.is_active == True)
-            .all()
-        }
+        )
 
-    for pid in portfolio_ids:
-        try:
-            n = svc.backfill_portfolio(pid)
-            logger.info("Portfolio %d (%s): %d new snapshots", pid, portfolio_names[pid], n)
-        except Exception as e:
-            logger.error("Portfolio %d failed: %s", pid, e)
+    if not portfolios:
+        logger.info("No active portfolios found -- skipping snapshot backfill")
+    else:
+        logger.info("Running snapshot backfill for %d portfolio(s) ...", len(portfolios))
+        for pid, pname in portfolios:
+            try:
+                n = svc.backfill_portfolio(pid)
+                logger.info("  Portfolio %d (%s): %d new snapshots", pid, pname, n)
+            except Exception as e:
+                logger.error("  Portfolio %d failed: %s", pid, e)
 
     logger.info("Done.")
 

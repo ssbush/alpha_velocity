@@ -20,18 +20,7 @@ class PortfolioManager {
         }
 
         try {
-            const response = await fetch(`${this.apiBaseUrl}/user/portfolios`, {
-                method: 'GET',
-                headers: {
-                    ...this.authManager.getAuthHeader()
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error('Failed to fetch portfolios');
-            }
-
-            const data = await response.json();
+            const data = await api.request('/user/portfolios');
             this.userPortfolios = data.portfolios || [];
             return { success: true, portfolios: this.userPortfolios };
         } catch (error) {
@@ -48,21 +37,7 @@ class PortfolioManager {
         }
 
         try {
-            const response = await fetch(`${this.apiBaseUrl}/user/portfolios/summaries?_=${Date.now()}`, {
-                method: 'GET',
-                headers: {
-                    'Cache-Control': 'no-cache, no-store, must-revalidate',
-                    'Pragma': 'no-cache',
-                    'Expires': '0',
-                    ...this.authManager.getAuthHeader()
-                }
-            });
-
-            if (!response.ok) {
-                throw new Error('Failed to fetch portfolio summaries');
-            }
-
-            const data = await response.json();
+            const data = await api.request(`/user/portfolios/summaries?_=${Date.now()}`);
             return { success: true, portfolios: data.portfolios || [] };
         } catch (error) {
             return { success: false, error: error.message };

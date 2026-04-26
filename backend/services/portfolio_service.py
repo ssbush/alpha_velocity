@@ -254,7 +254,7 @@ class PortfolioService:
                 'allocation_gap': allocation_gap,
                 'priority': 'High' if allocation_gap > 0.02 else 'Medium' if allocation_gap > 0 else 'Low',
                 'benchmark': category_info['benchmark'],
-                'candidates': scores[:5],  # Top 5 candidates per category
+                'candidates': scores[:7],  # Top 7 candidates per category
                 'total_candidates': len(scores)
             }
 

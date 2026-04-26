@@ -20,37 +20,37 @@ DEFAULT_PORTFOLIO = {
 # Portfolio categories with target allocations and benchmarks
 PORTFOLIO_CATEGORIES = {
     'Large-Cap Anchors': {
-        'tickers': ['NVDA', 'TSM', 'ASML', 'AVGO', 'MSFT', 'META', 'AAPL', 'AMD', 'GOOGL', 'TSLA', 'PLTR', 'CSCO', 'CRWV', 'ORCL', 'DT', 'AUR', 'MBLY', 'NOW'],
+        'tickers': ['NVDA', 'TSM', 'ASML', 'AVGO', 'MSFT', 'META', 'AAPL', 'AMD', 'GOOGL', 'TSLA', 'PLTR', 'CSCO', 'CRWV', 'ORCL', 'DT', 'AUR', 'MBLY', 'NOW', 'INTC', 'SNDK', 'COHR', 'TSEM'],
         'target_allocation': 0.20,
         'benchmark': 'QQQ'
     },
     'Small-Cap Specialists': {
-        'tickers': ['VRT', 'MOD', 'BE', 'CIEN', 'ATKR', 'UI', 'APLD', 'SMCI', 'GDS', 'VNET'],
+        'tickers': ['VRT', 'MOD', 'BE', 'CIEN', 'ATKR', 'UI', 'APLD', 'SMCI', 'GDS', 'VNET', 'LITE', 'WYFI', 'PSIX'],
         'target_allocation': 0.15,
         'benchmark': 'XLK'
     },
     'Data Center Infrastructure': {
-        'tickers': ['SRVR', 'DLR', 'EQIX', 'AMT', 'CCI', 'COR', 'IRM', 'ACM', 'JCI', 'IDGT', 'DTCR'],
+        'tickers': ['SRVR', 'DLR', 'EQIX', 'AMT', 'CCI', 'COR', 'IRM', 'ACM', 'JCI', 'IDGT', 'DTCR', 'CORZ', 'KRC'],
         'target_allocation': 0.15,
         'benchmark': 'VNQ'
     },
     'International Tech/Momentum': {
-        'tickers': ['EWJ', 'EWT', 'INDA', 'EWY', 'EWU'],
+        'tickers': ['EWJ', 'EWT', 'INDA', 'EWY', 'EWU', 'INFY'],
         'target_allocation': 0.12,
         'benchmark': 'VEA'
     },
     'Tactical Fixed Income': {
-        'tickers': ['SHY', 'VCIT', 'TIP', 'IEF', 'BIL', 'LQD', 'FLOT', 'XHLF'],
+        'tickers': ['SHY', 'VCIT', 'TIP', 'IEF', 'BIL', 'LQD', 'FLOT', 'XHLF', 'SWVXX'],
         'target_allocation': 0.08,
         'benchmark': 'AGG'
     },
     'Sector Momentum Rotation': {
-        'tickers': ['XLE', 'XLF', 'XLI', 'XLU', 'XLB'],
+        'tickers': ['XLE', 'XLF', 'XLI', 'XLU', 'XLB', 'LBRT', 'PUMP'],
         'target_allocation': 0.10,
         'benchmark': 'SPY'
     },
     'Critical Metals & Mining': {
-        'tickers': ['MP', 'LYC', 'ARA', 'ALB', 'SQM', 'LAC', 'FCX', 'SCCO', 'TECK'],
+        'tickers': ['MP', 'ALB', 'SQM', 'LAC', 'FCX', 'SCCO', 'TECK'],
         'target_allocation': 0.07,
         'benchmark': 'XLB'
     },
@@ -60,7 +60,7 @@ PORTFOLIO_CATEGORIES = {
         'benchmark': 'XLB'
     },
     'AI Power/Energy Infrastructure': {
-        'tickers': ['VST', 'CEG', 'NRG', 'GEV', 'CCJ', 'OKLO', 'SMR', 'TLN'],
+        'tickers': ['VST', 'CEG', 'NRG', 'GEV', 'CCJ', 'OKLO', 'SMR', 'TLN', 'IREN', 'CIFR', 'EQT', 'SEI', 'RIOT', 'HUT', 'BTDR', 'CLSK', 'BITF', 'BW'],
         'target_allocation': 0.08,
         'benchmark': 'XLU'
     }

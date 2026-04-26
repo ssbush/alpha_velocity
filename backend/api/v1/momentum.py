@@ -113,14 +113,27 @@ async def get_top_momentum_stocks(
             # Sort by momentum score and return top N
             df_sorted = df.nlargest(limit, 'Momentum_Score')
             
+            def _clean_num(v):
+                """Return a float, stripping currency formatting; None for NaN/missing."""
+                import math
+                if v is None:
+                    return None
+                if isinstance(v, str):
+                    v = v.replace('$', '').replace(',', '').strip()
+                    try:
+                        v = float(v)
+                    except ValueError:
+                        return None
+                return None if (isinstance(v, float) and not math.isfinite(v)) else float(v)
+
             stocks = []
             for _, row in df_sorted.iterrows():
                 stocks.append({
                     'ticker': row['Ticker'],
-                    'momentum_score': row['Momentum_Score'],
+                    'momentum_score': _clean_num(row['Momentum_Score']),
                     'rating': row['Rating'],
-                    'price': row['Price'],
-                    'market_value': row['Market_Value']
+                    'price': _clean_num(row['Price']),
+                    'market_value': _clean_num(row['Market_Value']),
                 })
             
             return {

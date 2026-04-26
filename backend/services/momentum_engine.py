@@ -25,10 +25,9 @@ class MomentumEngine:
     def __init__(self, price_service=None) -> None:
         from .price_service import PriceService
         self.weights: Dict[str, float] = {
-            'price_momentum': 0.40,
-            'technical_momentum': 0.25,
-            'fundamental_momentum': 0.25,
-            'relative_momentum': 0.10
+            'price_momentum': 0.50,
+            'technical_momentum': 0.35,
+            'relative_momentum': 0.15
         }
         self.price_service: 'PriceService' = price_service or PriceService()
 
@@ -44,49 +43,58 @@ class MomentumEngine:
         return self.price_service.get_stock_data(ticker, period)
 
     def calculate_price_momentum(self, hist_data: pd.DataFrame) -> float:
-        """Calculate price momentum component (40% of total score)"""
+        """Calculate price momentum component (50% of total score).
+
+        Three sub-components:
+        - Trend direction   (20 pts): is price above key moving averages?
+        - Return magnitude  (40 pts): weighted absolute performance across timeframes
+        - Momentum acceleration (40 pts): is the trend speeding up or slowing down?
+
+        Replacing the old binary MA-above/below scoring (which could max out the
+        component regardless of actual returns) with a balanced three-part model
+        that rewards acceleration and penalises deceleration early.
+        """
         if len(hist_data) < 249:
             return 0
 
         current_price = hist_data['Close'].iloc[-1]
 
-        # Calculate returns over different periods
-        returns = {}
-        periods = {
-            '1m': 21,   # 1 month
-            '3m': 63,   # 3 months
-            '6m': 126,  # 6 months
-            '12m': 249  # 12 months
-        }
-
-        for period, days in periods.items():
-            if len(hist_data) >= days:
-                past_price = hist_data['Close'].iloc[-days]
-                returns[period] = (current_price / past_price) - 1
-            else:
-                returns[period] = 0
-
-        # Weight recent performance more heavily
-        weights = {'1m': 0.4, '3m': 0.3, '6m': 0.2, '12m': 0.1}
-        weighted_return = sum(returns[period] * weights[period] for period in returns)
-
-        # Moving average signals
-        ma_20 = hist_data['Close'].rolling(20).mean().iloc[-1]
-        ma_50 = hist_data['Close'].rolling(50).mean().iloc[-1]
+        # --- Trend direction (max 20 pts) ---
+        ma_20  = hist_data['Close'].rolling(20).mean().iloc[-1]
+        ma_50  = hist_data['Close'].rolling(50).mean().iloc[-1]
         ma_200 = hist_data['Close'].rolling(200).mean().iloc[-1]
+        direction_score = 0
+        if current_price > ma_20:  direction_score += 7
+        if current_price > ma_50:  direction_score += 6
+        if current_price > ma_200: direction_score += 7
 
-        ma_score = 0
-        if current_price > ma_20:
-            ma_score += 0.4
-        if current_price > ma_50:
-            ma_score += 0.3
-        if current_price > ma_200:
-            ma_score += 0.3
+        # --- Return magnitude (max 40 pts) ---
+        periods = {'1m': 21, '3m': 63, '6m': 126, '12m': 249}
+        returns = {p: (current_price / hist_data['Close'].iloc[-d]) - 1
+                   for p, d in periods.items()}
 
-        # Combine weighted return and MA signals
-        momentum_score = (weighted_return * 100) + (ma_score * 100)
+        w = {'1m': 0.4, '3m': 0.3, '6m': 0.2, '12m': 0.1}
+        weighted_return = sum(returns[p] * w[p] for p in returns)
+        # Neutral (0 %) → 20 pts; ±25 % weighted return → [0, 40]
+        magnitude_score = max(0.0, min(40.0, 20.0 + weighted_return * 80.0))
 
-        return min(100, max(0, momentum_score))
+        # --- Momentum acceleration (max 40 pts) ---
+        # Annualise 1-month vs 3-month returns to detect whether speed is changing
+        r1m_ann = (1.0 + returns['1m']) ** 12 - 1.0
+        r3m_ann = (1.0 + returns['3m']) **  4 - 1.0
+        return_accel = r1m_ann - r3m_ann   # positive = accelerating, negative = decelerating
+
+        # MA-20 slope over last 10 trading days, annualised (~252/10 ≈ 25×)
+        ma20_series = hist_data['Close'].rolling(20).mean()
+        ma20_prev   = ma20_series.iloc[-11]
+        ma20_slope_ann = ((ma20_series.iloc[-1] / ma20_prev) - 1.0) * 25.0 if ma20_prev > 0 else 0.0
+
+        # 70 % return acceleration + 30 % MA-20 slope direction
+        combined_accel = 0.7 * return_accel + 0.3 * ma20_slope_ann
+        # Neutral (0) → 20 pts; ±~67 % annualised acceleration → [0, 40]
+        accel_score = max(0.0, min(40.0, 20.0 + combined_accel * 30.0))
+
+        return min(100.0, direction_score + magnitude_score + accel_score)
 
     def calculate_technical_momentum(self, hist_data: pd.DataFrame) -> float:
         """Calculate technical momentum component (25% of total score)"""
@@ -263,28 +271,19 @@ class MomentumEngine:
                     'rating': 'Insufficient Data',
                     'price_momentum': 0,
                     'technical_momentum': 0,
-                    'fundamental_momentum': 0,
                     'relative_momentum': 0
                 }
 
             # Calculate individual components using historical data up to target date
             price_momentum = self.calculate_price_momentum(hist_data)
             technical_momentum = self.calculate_technical_momentum(hist_data)
-
-            # For fundamental data, we'll use a simplified approach since historical fundamentals are harder to get
-            # Use a base score with some variation based on price performance
-            recent_return = (hist_data['Close'].iloc[-1] / hist_data['Close'].iloc[-21] - 1) if len(hist_data) >= 21 else 0
-            fundamental_momentum = max(30, min(90, 60 + (recent_return * 100)))  # Scale around 60
-
-            # Calculate relative momentum against SPY for the same period
             relative_momentum = self.calculate_historical_relative_momentum(ticker, hist_data, target_date)
 
-            # Calculate weighted composite score
+            # Calculate weighted composite score (fundamental component removed)
             composite_score = (
-                price_momentum * self.weights['price_momentum'] +
+                price_momentum     * self.weights['price_momentum'] +
                 technical_momentum * self.weights['technical_momentum'] +
-                fundamental_momentum * self.weights['fundamental_momentum'] +
-                relative_momentum * self.weights['relative_momentum']
+                relative_momentum  * self.weights['relative_momentum']
             )
 
             # Determine rating
@@ -305,7 +304,6 @@ class MomentumEngine:
                 'rating': rating,
                 'price_momentum': round(price_momentum, 1),
                 'technical_momentum': round(technical_momentum, 1),
-                'fundamental_momentum': round(fundamental_momentum, 1),
                 'relative_momentum': round(relative_momentum, 1)
             }
 
@@ -313,11 +311,10 @@ class MomentumEngine:
             # Fallback to a reasonable default based on historical context
             return {
                 'ticker': ticker,
-                'composite_score': 60.0,  # Neutral score for historical data
+                'composite_score': 60.0,
                 'rating': 'Hold',
                 'price_momentum': 60.0,
                 'technical_momentum': 60.0,
-                'fundamental_momentum': 60.0,
                 'relative_momentum': 60.0
             }
 
@@ -374,7 +371,6 @@ class MomentumEngine:
                 'rating': 'Insufficient Data',
                 'price_momentum': 0,
                 'technical_momentum': 0,
-                'fundamental_momentum': 0,
                 'relative_momentum': 0,
                 'current_price': None
             }
@@ -383,23 +379,20 @@ class MomentumEngine:
             return result
 
         # Calculate individual components
-        # Fixed income ETFs use yield+trend scoring and AGG as benchmark
+        # Fixed income ETFs use AGG as relative-momentum benchmark
         is_fi = self._is_fixed_income(stock_info or {})
         price_momentum = self.calculate_price_momentum(hist_data)
         technical_momentum = self.calculate_technical_momentum(hist_data)
         if is_fi:
-            fundamental_momentum = self.calculate_fixed_income_fundamental(stock_info or {}, hist_data)
             relative_momentum = self.calculate_relative_momentum(ticker, hist_data, benchmark='AGG')
         else:
-            fundamental_momentum = self.calculate_fundamental_momentum(stock_info or {})
             relative_momentum = self.calculate_relative_momentum(ticker, hist_data)
 
-        # Calculate weighted composite score
+        # Calculate weighted composite score (fundamental component removed)
         composite_score = (
-            price_momentum * self.weights['price_momentum'] +
+            price_momentum     * self.weights['price_momentum'] +
             technical_momentum * self.weights['technical_momentum'] +
-            fundamental_momentum * self.weights['fundamental_momentum'] +
-            relative_momentum * self.weights['relative_momentum']
+            relative_momentum  * self.weights['relative_momentum']
         )
 
         # Determine rating
@@ -423,7 +416,6 @@ class MomentumEngine:
             'rating': rating,
             'price_momentum': round(price_momentum, 1),
             'technical_momentum': round(technical_momentum, 1),
-            'fundamental_momentum': round(fundamental_momentum, 1),
             'relative_momentum': round(relative_momentum, 1),
             'current_price': current_price,
             'scoring_model': 'fixed_income' if is_fi else 'equity',

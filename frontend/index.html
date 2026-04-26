@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
@@ -8,7 +8,7 @@
     <meta name="apple-mobile-web-app-title" content="AlphaVelocity">
     <meta name="theme-color" content="#4c1d95">
     <title>AlphaVelocity - AI Momentum Scoring</title>
-    <link rel="stylesheet" href="css/styles.css?v=23">
+    <link rel="stylesheet" href="css/styles.css?v=54">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
     <meta name="mobile-web-app-capable" content="yes">
@@ -32,13 +32,34 @@
                     </div>
                 </div>
                 <nav class="nav">
-                    <button class="nav-btn active" data-view="dashboard">Dashboard</button>
-                    <button class="nav-btn" data-view="portfolio-builder">Builder</button>
-                    <button class="nav-btn" data-view="categories">Categories</button>
-                    <button class="nav-btn" data-view="watchlist">Watchlist</button>
+                    <button class="nav-btn active auth-nav" data-view="dashboard">Dashboard</button>
+                    <button class="nav-btn auth-nav" data-view="portfolio-builder">Builder</button>
+                    <button class="nav-btn auth-nav" data-view="categories">Categories</button>
+                    <button class="nav-btn auth-nav" data-view="watchlist">Watchlist</button>
                     <button class="nav-btn" data-view="search">Search</button>
                 </nav>
                 <div class="user-auth">
+                    <!-- UI Version Toggle -->
+                    <div class="ui-version-toggle" title="Switch between v1 and v2 interface">
+                        <button id="ui-v1-btn">v1</button>
+                        <button id="ui-v2-btn">v2</button>
+                    </div>
+                    <!-- Theme Switcher -->
+                    <div class="theme-switcher">
+                        <select id="theme-select" title="Color theme" aria-label="Color theme">
+                            <optgroup label="Classic" id="theme-group-v1">
+                                <option value="dark">Dark</option>
+                                <option value="forest">Forest</option>
+                                <option value="slate">Slate</option>
+                                <option value="crt">CRT</option>
+                            </optgroup>
+                            <optgroup label="v2 Themes" id="theme-group-v2">
+                                <option value="obsidian">Obsidian</option>
+                                <option value="carbon">Carbon</option>
+                                <option value="void">Void</option>
+                            </optgroup>
+                        </select>
+                    </div>
                     <!-- Guest Section -->
                     <div id="guest-section" class="auth-section">
                         <button id="show-login-btn" class="auth-btn">Login</button>
@@ -65,6 +86,24 @@
                         </div>
                         <div id="portfolio-dashboard"></div>
 
+                        <!-- Composite Momentum Score -->
+                        <div id="portfolio-composite-momentum-section" style="display: none; margin-top: 1.25rem;">
+                            <div class="stat-card" style="display: flex; align-items: center; gap: 2rem; padding: 1rem 1.5rem;">
+                                <div>
+                                    <div style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 600; letter-spacing: 0.05em; margin-bottom: 0.25rem;">PORTFOLIO MOMENTUM</div>
+                                    <div style="display: flex; align-items: baseline; gap: 0.5rem;">
+                                        <span id="composite-score-value" style="font-size: 2.5rem; font-weight: 700; line-height: 1;"></span>
+                                        <span id="composite-score-rating" style="font-size: 0.875rem; font-weight: 600; padding: 0.2rem 0.5rem; border-radius: 0.25rem;"></span>
+                                    </div>
+                                    <div id="composite-score-coverage" style="font-size: 0.7rem; color: var(--text-secondary); margin-top: 0.25rem;"></div>
+                                </div>
+                                <div style="flex: 1; height: 90px; min-width: 160px; max-width: 320px; position: relative;">
+                                    <canvas id="composite-momentum-sparkline"></canvas>
+                                </div>
+                                <button id="refresh-momentum-btn" onclick="app.refreshMomentumScore()" style="align-self: center; padding: 0.4rem 0.75rem; font-size: 0.75rem; background: var(--surface-alt); border: 1px solid var(--border-subtle); border-radius: 0.25rem; color: var(--text-secondary); cursor: pointer; white-space: nowrap;">Refresh Score</button>
+                            </div>
+                        </div>
+
                         <!-- Portfolio Value History Chart -->
                         <div id="portfolio-value-chart-section" style="display: none; margin-top: 1.25rem;">
                             <div class="portfolio-value-chart-container">
@@ -76,6 +115,33 @@
                         <div id="portfolio-return-chart-section" style="display: none; margin-top: 0.75rem;">
                             <div class="portfolio-value-chart-container">
                                 <canvas id="portfolio-return-chart"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Portfolio Drawdown Chart -->
+                        <div id="portfolio-drawdown-chart-section" style="display: none; margin-top: 0.75rem;">
+                            <div id="portfolio-drawdown-stats" style="margin-bottom: 0.75rem;"></div>
+                            <div class="portfolio-value-chart-container">
+                                <canvas id="portfolio-drawdown-chart"></canvas>
+                            </div>
+                        </div>
+
+                        <!-- Correlation Matrix -->
+                        <div id="correlation-matrix-section" style="display: none; margin-top: 0.75rem;">
+                            <div class="portfolio-value-chart-container" style="height: auto; min-height: 200px; padding: 1rem 1.25rem 1.25rem;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+                                    <span style="font-size: 0.75rem; font-weight: 600; color: var(--text-secondary); letter-spacing: 0.05em; text-transform: uppercase;">Correlation Matrix</span>
+                                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                        <select id="correlation-days-select" style="font-size: 0.7rem; padding: 0.2rem 0.4rem; background: var(--surface-alt); border: 1px solid var(--border-subtle); border-radius: 0.25rem; color: var(--text-secondary); cursor: pointer;">
+                                            <option value="30">30d</option>
+                                            <option value="60">60d</option>
+                                            <option value="90" selected>90d</option>
+                                            <option value="180">180d</option>
+                                            <option value="365">365d</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div id="correlation-matrix-container"></div>
                             </div>
                         </div>
 
@@ -91,35 +157,19 @@
 
                     <!-- Default view for non-logged-in users -->
                     <div id="default-dashboard-section">
-                        <div class="view-header">
-                            <h2>Portfolio Overview</h2>
-                            <div class="stats-grid">
-                                <div class="stat-card">
-                                    <div class="stat-value" id="total-value">--</div>
-                                    <div class="stat-label">Total Value</div>
-                                </div>
-                                <div class="stat-card">
-                                    <div class="stat-value" id="avg-score">--</div>
-                                    <div class="stat-label">Avg Momentum</div>
-                                </div>
-                                <div class="stat-card">
-                                    <div class="stat-value" id="positions-count">--</div>
-                                    <div class="stat-label">Positions</div>
-                                </div>
+                        <div class="leaderboard-header">
+                            <div>
+                                <h2 class="leaderboard-title">Momentum Leaderboard</h2>
+                                <p class="leaderboard-subtitle">AI supply chain universe · ranked by composite momentum score</p>
                             </div>
+                            <a href="#" id="leaderboard-login-cta" class="auth-btn primary" style="align-self: center;">Sign in to track your portfolio →</a>
                         </div>
-
-                        <div class="section">
-                            <h3>Top Momentum Stocks</h3>
-                            <div class="loading" id="top-momentum-loading">Loading...</div>
-                            <div class="momentum-grid" id="top-momentum-grid"></div>
-                        </div>
-
-                        <div class="section">
-                            <h3>Portfolio Performance</h3>
-                            <div class="chart-container">
-                                <canvas id="trend-chart"></canvas>
-                            </div>
+                        <div class="section" style="padding: 0;">
+                            <div id="top-momentum-loading" class="loading" style="padding: 1.5rem;">Loading…</div>
+                            <table id="leaderboard-table" style="display: none; width: 100%; border-collapse: collapse;">
+                                <thead id="leaderboard-thead"></thead>
+                                <tbody id="leaderboard-tbody"></tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
@@ -154,7 +204,10 @@
                                     <select id="transaction-type">
                                         <option value="BUY">Buy</option>
                                         <option value="SELL">Sell</option>
+                                        <option value="REINVEST">Dividend Reinvestment</option>
                                         <option value="SPLIT">Stock Split</option>
+                                        <option value="DEPOSIT">Deposit Cash</option>
+                                        <option value="WITHDRAWAL">Withdraw Cash</option>
                                     </select>
                                 </div>
                                 <div class="form-group">
@@ -175,6 +228,14 @@
                                     <label for="transaction-fees">Fees (Optional)</label>
                                     <input type="number" id="transaction-fees" placeholder="0.00" min="0" step="0.01">
                                 </div>
+                                <div class="form-group" id="dividend-amount-group" style="display:none;">
+                                    <label for="transaction-dividend-amount">Dividend Amount ($)</label>
+                                    <input type="number" id="transaction-dividend-amount" placeholder="Total dividend received" min="0" step="0.01">
+                                </div>
+                                <div class="form-group" id="cash-amount-group" style="display:none;">
+                                    <label for="transaction-cash-amount">Amount ($)</label>
+                                    <input type="number" id="transaction-cash-amount" placeholder="0.00" min="0.01" step="0.01">
+                                </div>
                             </div>
                             <div class="form-row">
                                 <div class="form-group full-width">
@@ -186,6 +247,8 @@
                                 <button id="add-transaction-btn" class="primary-btn">Add Transaction</button>
                                 <button id="clear-form-btn" class="secondary-btn">Clear Form</button>
                                 <button id="backfill-splits-btn" class="secondary-btn">Backfill Splits</button>
+                                <button id="import-transactions-btn" class="secondary-btn">Import File</button>
+                                <input type="file" id="import-transactions-file" accept=".json,.csv" style="display:none">
                             </div>
                         </div>
                     </div>
@@ -195,6 +258,27 @@
                         <h3>Portfolio Summary</h3>
                         <div id="builder-portfolio-summary" class="portfolio-summary-builder">
                             <div class="loading">Build your portfolio by adding transactions above</div>
+                        </div>
+                    </div>
+
+                    <!-- Watchlist -->
+                    <div class="section">
+                        <div class="watchlist-builder-header">
+                            <h3>Watchlist</h3>
+                            <div class="watchlist-builder-actions">
+                                <div class="wl-sort-toggle">
+                                    <button id="wl-sort-score" class="wl-sort-btn active" onclick="app.setWatchlistSort('score')">Score</button>
+                                    <button id="wl-sort-alpha" class="wl-sort-btn" onclick="app.setWatchlistSort('alpha')">A–Z</button>
+                                </div>
+                                <button id="populate-watchlist-btn" class="secondary-btn">Populate from Categories</button>
+                            </div>
+                        </div>
+                        <div class="watchlist-add-row">
+                            <input type="text" id="watchlist-add-input" placeholder="Add ticker (e.g. AAPL)" maxlength="10" style="text-transform:uppercase">
+                            <button id="watchlist-add-btn" class="primary-btn">Add</button>
+                        </div>
+                        <div id="builder-watchlist" class="builder-watchlist-grid">
+                            <div class="loading">Loading watchlist…</div>
                         </div>
                     </div>
 
@@ -300,6 +384,21 @@
             <div>Loading...</div>
         </div>
 
+        <!-- Term Structure Modal -->
+        <div id="term-structure-modal" class="modal" style="display: none;">
+            <div class="modal-content" style="max-width: 560px;">
+                <span class="close" id="close-term-structure">&times;</span>
+                <div style="margin-bottom: 0.75rem;">
+                    <span id="term-structure-title" style="font-size: 1rem; font-weight: 700; color: var(--text-primary);"></span>
+                    <span style="font-size: 0.75rem; color: var(--text-secondary); margin-left: 0.5rem;">Volatility Term Structure</span>
+                </div>
+                <div style="position: relative; height: 260px;">
+                    <canvas id="term-structure-chart"></canvas>
+                </div>
+                <div id="term-structure-loading" style="text-align: center; padding: 2rem; color: var(--text-secondary); font-size: 0.85rem;">Loading…</div>
+            </div>
+        </div>
+
         <!-- Portfolio Selector Modal -->
         <div id="portfolio-selector-modal" class="modal" style="display: none;">
             <div class="modal-content">
@@ -376,10 +475,10 @@
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3"></script>
-    <script src="js/api.js?v=21"></script>
-    <script src="js/charts.js?v=21"></script>
-    <script src="js/auth.js?v=21"></script>
-    <script src="js/portfolio-manager.js?v=21"></script>
-    <script src="js/app.js?v=21"></script>
+    <script src="js/api.js?v=30"></script>
+    <script src="js/charts.js?v=36"></script>
+    <script src="js/auth.js?v=23"></script>
+    <script src="js/portfolio-manager.js?v=24"></script>
+    <script src="js/app.js?v=62"></script>
 </body>
 </html>

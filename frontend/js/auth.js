@@ -13,7 +13,25 @@ class AuthManager {
     }
 
     /**
-     * Load session from localStorage
+     * Decode the exp claim from a JWT without verifying the signature.
+     * Used only for client-side UX timing — the server always validates signatures.
+     * @returns {number|null} Expiry time in milliseconds, or null if unreadable.
+     */
+    getTokenExpiry(token = this.token) {
+        if (!token) return null;
+        try {
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            return payload.exp ? payload.exp * 1000 : null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Load session from localStorage.
+     * Clears the session immediately if the access token is expired and there
+     * is no refresh token to recover with — prevents the broken logged-in-but-
+     * all-API-calls-fail state after returning to the tab days later.
      */
     loadSession() {
         const token = localStorage.getItem('auth_token');
@@ -21,6 +39,17 @@ class AuthManager {
         const userStr = localStorage.getItem('current_user');
 
         if (token && userStr) {
+            const expiry = this.getTokenExpiry(token);
+            const isExpired = expiry !== null && Date.now() > expiry;
+
+            if (isExpired && !refreshToken) {
+                // Access token dead, no refresh token — clear everything
+                localStorage.removeItem('auth_token');
+                localStorage.removeItem('refresh_token');
+                localStorage.removeItem('current_user');
+                return;
+            }
+
             this.token = token;
             this.refreshToken = refreshToken;
             this.currentUser = JSON.parse(userStr);
@@ -310,6 +339,14 @@ class AuthManager {
     }
 
     /**
+     * Check whether the stored access token is currently expired.
+     */
+    isTokenExpired() {
+        const exp = this.getTokenExpiry();
+        return exp !== null && Date.now() > exp;
+    }
+
+    /**
      * Setup auth event listeners
      */
     setupEventListeners() {
@@ -376,7 +413,7 @@ class AuthManager {
 
                 const result = await this.login(username, password);
                 if (result.success) {
-                    await this._clearSwAndReload();
+                    window.location.reload();
                 } else {
                     errorDiv.textContent = result.error;
                     errorDiv.style.display = 'block';
@@ -405,12 +442,181 @@ class AuthManager {
 
                 const result = await this.register(username, email, password, firstName, lastName);
                 if (result.success) {
-                    await this._clearSwAndReload();
+                    window.location.reload();
                 } else {
                     errorDiv.textContent = result.error;
                     errorDiv.style.display = 'block';
                 }
             });
         }
+    }
+}
+
+/**
+ * SessionMonitor
+ *
+ * Tracks user idle time and manages session lifecycle:
+ *  - Active users (any interaction within the last 55 min): silently refresh
+ *    the access token before it expires so the session extends indefinitely.
+ *  - Idle users: warn at 55 min, force logout at 60 min.
+ *  - On tab focus (visibilitychange): run an immediate check so returning to
+ *    a backgrounded tab never silently leaves the user in a broken state.
+ *
+ * Activity is persisted in localStorage so multiple tabs share idle state.
+ */
+class SessionMonitor {
+    constructor(authManager) {
+        this.authManager = authManager;
+        this.IDLE_WARN_MS  = 55 * 60 * 1000;  // warn after 55 min idle
+        this.IDLE_LOGOUT_MS = 60 * 60 * 1000; // logout after 60 min idle
+        this.REFRESH_AHEAD_MS = 5 * 60 * 1000; // refresh when <5 min left on token
+        this.CHECK_INTERVAL_MS = 30 * 1000;    // check every 30 seconds
+        this._interval = null;
+        this._warnShown = false;
+        this._activityThrottle = 0;            // prevents flooding localStorage
+    }
+
+    start() {
+        this._recordActivity();
+
+        // Track activity from any tab interaction
+        ['click', 'keydown', 'touchstart'].forEach(evt =>
+            document.addEventListener(evt, () => this._onActivity(), { passive: true })
+        );
+
+        // Scroll is high-frequency — throttle to once per 10 seconds
+        document.addEventListener('scroll', () => {
+            const now = Date.now();
+            if (now - this._activityThrottle > 10_000) {
+                this._activityThrottle = now;
+                this._onActivity();
+            }
+        }, { passive: true });
+
+        // Immediate check when tab comes back into focus
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') this._tick();
+        });
+
+        this._interval = setInterval(() => this._tick(), this.CHECK_INTERVAL_MS);
+    }
+
+    stop() {
+        clearInterval(this._interval);
+        this._removeWarningModal();
+    }
+
+    _onActivity() {
+        this._recordActivity();
+        // If the warning is showing and the user just interacted, dismiss it
+        if (this._warnShown) {
+            this._removeWarningModal();
+            this._warnShown = false;
+        }
+    }
+
+    _recordActivity() {
+        localStorage.setItem('av_last_activity', Date.now().toString());
+    }
+
+    _idleMs() {
+        const last = parseInt(localStorage.getItem('av_last_activity') || '0');
+        return Date.now() - last;
+    }
+
+    async _tick() {
+        if (!this.authManager.isLoggedIn()) { this.stop(); return; }
+
+        const idle = this._idleMs();
+
+        // Proactively refresh if token is close to expiry AND user is active
+        if (idle < this.IDLE_WARN_MS) {
+            const exp = this.authManager.getTokenExpiry();
+            if (exp && (exp - Date.now()) < this.REFRESH_AHEAD_MS) {
+                await this.authManager.refreshAccessToken();
+            }
+        }
+
+        // Force logout at 60 min idle
+        if (idle >= this.IDLE_LOGOUT_MS) {
+            this._expireSession();
+            return;
+        }
+
+        // Show warning at 55 min idle
+        if (idle >= this.IDLE_WARN_MS && !this._warnShown) {
+            const minsLeft = Math.ceil((this.IDLE_LOGOUT_MS - idle) / 60_000);
+            this._showWarningModal(minsLeft);
+            this._warnShown = true;
+        }
+    }
+
+    _showWarningModal(minsLeft) {
+        if (document.getElementById('session-warning-modal')) return;
+
+        const modal = document.createElement('div');
+        modal.id = 'session-warning-modal';
+        modal.style.cssText = `
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            display: flex; align-items: center; justify-content: center;
+            z-index: 9999; background: rgba(0,0,0,0.5);
+        `;
+        modal.innerHTML = `
+            <div style="
+                background: var(--surface, #1e1b4b);
+                border: 1px solid var(--border, rgba(255,255,255,0.1));
+                border-radius: 8px; padding: 28px 32px; max-width: 380px; width: 90%;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.4); text-align: center;
+            ">
+                <div style="font-size: 2rem; margin-bottom: 12px;">⏱</div>
+                <h3 style="margin: 0 0 8px; color: var(--text-primary, #fff); font-size: 1.1rem;">
+                    Session Expiring Soon
+                </h3>
+                <p style="margin: 0 0 24px; color: var(--text-secondary, rgba(255,255,255,0.7)); font-size: 0.9rem;">
+                    You'll be logged out in <strong id="session-countdown">${minsLeft} minute${minsLeft !== 1 ? 's' : ''}</strong>
+                    due to inactivity.
+                </p>
+                <div style="display: flex; gap: 10px; justify-content: center;">
+                    <button id="session-stay-btn" style="
+                        padding: 9px 20px; border-radius: 6px; border: none; cursor: pointer;
+                        background: var(--accent, #7c3aed); color: #fff; font-size: 0.9rem; font-weight: 500;
+                    ">Stay Logged In</button>
+                    <button id="session-logout-btn" style="
+                        padding: 9px 20px; border-radius: 6px; cursor: pointer;
+                        background: transparent; color: var(--text-secondary, rgba(255,255,255,0.6));
+                        border: 1px solid var(--border, rgba(255,255,255,0.15)); font-size: 0.9rem;
+                    ">Log Out Now</button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+
+        document.getElementById('session-stay-btn').addEventListener('click', async () => {
+            const ok = await this.authManager.refreshAccessToken();
+            if (ok) {
+                this._recordActivity();
+                this._removeWarningModal();
+                this._warnShown = false;
+            } else {
+                this._expireSession();
+            }
+        });
+
+        document.getElementById('session-logout-btn').addEventListener('click', () => {
+            this.authManager.logout();
+        });
+    }
+
+    _removeWarningModal() {
+        const modal = document.getElementById('session-warning-modal');
+        if (modal) modal.remove();
+    }
+
+    _expireSession() {
+        this.stop();
+        this.authManager.clearSession();
+        localStorage.setItem('av_session_expired', '1');
+        window.location.reload();
     }
 }

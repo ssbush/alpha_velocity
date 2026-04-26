@@ -190,7 +190,6 @@ class DailyCacheService:
                     'rating': result['rating'],
                     'price_momentum': result['price_momentum'],
                     'technical_momentum': result['technical_momentum'],
-                    'fundamental_momentum': result['fundamental_momentum'],
                     'relative_momentum': result['relative_momentum']
                 }
 
@@ -324,8 +323,123 @@ class DailyCacheService:
                         ))
 
             logger.info("Persisted %d prices to DB for %s", len(daily_prices), date)
+
+            # Backfill any gaps in price_history for these tickers (runs async-style in background)
+            self._backfill_price_history(list(daily_prices.keys()), db_config)
+
         except Exception as e:
             logger.warning("Failed to persist prices to DB: %s", e)
+
+    def _backfill_price_history(self, tickers: list, db_config, lookback_days: int = 400):
+        """
+        For each ticker, check the oldest price_history row in the DB.
+        If it's less than lookback_days old, download the missing history
+        from yfinance and insert the gaps (skipping rows that already exist).
+
+        Runs best-effort — any error is logged and swallowed.
+        """
+        try:
+            import yfinance as yf
+            from datetime import date as date_type, timedelta as td
+            from ..models.database import PriceHistory, SecurityMaster
+            from sqlalchemy import func as sqlfunc
+
+            cutoff = date_type.today() - td(days=lookback_days)
+
+            with db_config.get_session_context() as session:
+                # Find oldest stored date per ticker in one query
+                sec_rows = (
+                    session.query(SecurityMaster.ticker, SecurityMaster.id)
+                    .filter(SecurityMaster.ticker.in_(tickers))
+                    .all()
+                )
+                sec_map = {r.ticker: r.id for r in sec_rows}
+
+                oldest_map = {}
+                if sec_map:
+                    rows = (
+                        session.query(
+                            SecurityMaster.ticker,
+                            sqlfunc.min(PriceHistory.price_date),
+                        )
+                        .join(PriceHistory, PriceHistory.security_id == SecurityMaster.id)
+                        .filter(SecurityMaster.ticker.in_(list(sec_map.keys())))
+                        .group_by(SecurityMaster.ticker)
+                        .all()
+                    )
+                    oldest_map = {r[0]: r[1] for r in rows}
+
+            # Identify tickers that need backfill
+            needs_backfill = []
+            for ticker in tickers:
+                oldest = oldest_map.get(ticker)
+                if oldest is None or oldest > cutoff:
+                    needs_backfill.append(ticker)
+
+            if not needs_backfill:
+                return
+
+            logger.info("Backfilling price history for %d tickers: %s", len(needs_backfill), needs_backfill[:10])
+
+            raw = yf.download(
+                needs_backfill,
+                start=cutoff.isoformat(),
+                end=date_type.today().isoformat(),
+                auto_adjust=True,
+                progress=False,
+            )
+
+            if raw.empty:
+                return
+
+            # Normalise MultiIndex / single-ticker shape
+            if isinstance(raw.columns, pd.MultiIndex):
+                closes = raw["Close"]
+            else:
+                closes = raw[["Close"]].rename(columns={"Close": needs_backfill[0]})
+
+            closes.index = closes.index.date
+
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+            with db_config.get_session_context() as session:
+                # Refresh sec_map (may have new tickers from _persist_prices_to_db)
+                sec_rows = (
+                    session.query(SecurityMaster.ticker, SecurityMaster.id)
+                    .filter(SecurityMaster.ticker.in_(needs_backfill))
+                    .all()
+                )
+                sec_map = {r.ticker: r.id for r in sec_rows}
+
+                # Build bulk insert rows, rely on ON CONFLICT DO NOTHING for dedup
+                rows = []
+                for ticker in needs_backfill:
+                    if ticker not in sec_map or ticker not in closes.columns:
+                        continue
+                    sec_id = sec_map[ticker]
+                    for price_date, close_val in closes[ticker].items():
+                        if pd.isna(close_val):
+                            continue
+                        rows.append({
+                            "security_id": sec_id,
+                            "price_date": price_date,
+                            "close_price": float(close_val),
+                        })
+
+                if rows:
+                    stmt = pg_insert(PriceHistory.__table__).values(rows)
+                    stmt = stmt.on_conflict_do_nothing(
+                        index_elements=["security_id", "price_date"]
+                    )
+                    result = session.execute(stmt)
+                    inserted = result.rowcount if result.rowcount >= 0 else len(rows)
+                else:
+                    inserted = 0
+
+            logger.info("Backfilled %d price rows for %d tickers", inserted, len(needs_backfill))
+
+        except Exception as e:
+            logger.warning("Price history backfill failed (non-fatal): %s", e)
 
     def _record_db_snapshots(self):
         """Record portfolio value snapshots in the performance_snapshots DB table."""

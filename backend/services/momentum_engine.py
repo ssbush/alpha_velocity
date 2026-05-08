@@ -5,6 +5,7 @@ from typing import Dict, Tuple, Optional, Any
 import warnings
 import time
 import logging
+import pytz
 warnings.filterwarnings('ignore')
 
 from .historical_service import HistoricalDataService
@@ -31,12 +32,23 @@ class MomentumEngine:
         }
         self.price_service: 'PriceService' = price_service or PriceService()
 
-        # Simple memory cache for momentum scores (24 hour TTL)
+        # In-memory score cache.  TTL is market-hours-aware — see _cache_ttl property.
         self._cache: Dict[str, Tuple[Dict[str, Any], float]] = {}
-        self._cache_ttl: int = 86400  # 24 hours (until next trading day)
 
         # Historical data service
         self.historical_service: HistoricalDataService = HistoricalDataService()
+
+    @property
+    def _cache_ttl(self) -> int:
+        """During market hours return a 1-hour TTL so intraday score drift
+        (volume, ROC, RSI) is reflected promptly.  Outside market hours a
+        24-hour TTL is fine — scores won't move until the next session."""
+        now = datetime.now(pytz.timezone("US/Eastern"))
+        market_open  = now.replace(hour=9,  minute=30, second=0, microsecond=0)
+        market_close = now.replace(hour=16, minute=0,  second=0, microsecond=0)
+        if now.weekday() < 5 and market_open <= now <= market_close:
+            return 3600   # 1 hour during the trading session
+        return 86400      # 24 hours outside market hours
 
     def get_stock_data(self, ticker: str, period: str = '1y') -> Tuple[Optional[pd.DataFrame], Optional[Dict[str, Any]]]:
         """Fetch stock data via price service"""

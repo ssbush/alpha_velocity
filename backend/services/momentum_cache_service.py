@@ -9,10 +9,11 @@ Tier 3: Live yfinance via momentum_engine.calculate_momentum_score()
 import asyncio
 import logging
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
+import pytz
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -97,12 +98,33 @@ class MomentumCacheService:
             missing.append(ticker)
         return missing
 
+    @staticmethod
+    def _get_last_trading_date() -> date:
+        """Return the most recent date for which EOD scores should exist.
+
+        After 4 pm ET on a weekday → today.  Otherwise → the most recent prior weekday.
+        Holidays are not modelled; weekday proximity is a good-enough proxy.
+        """
+        now = datetime.now(pytz.timezone("US/Eastern"))
+        market_close = now.replace(hour=16, minute=0, second=0, microsecond=0)
+        candidate = now.date() if (now.weekday() < 5 and now >= market_close) else now.date() - timedelta(days=1)
+        while candidate.weekday() >= 5:
+            candidate -= timedelta(days=1)
+        return candidate
+
     def _check_database(
         self, tickers: List[str], data: Dict[str, Dict]
     ) -> List[str]:
-        """Query PostgreSQL for most recent momentum scores + prices."""
+        """Query PostgreSQL for most recent momentum scores + prices.
+
+        Only backfills the in-memory cache when the DB score is from the last
+        completed trading day.  Stale scores are routed to Tier 3 so they get
+        recalculated from live market data rather than being served as current.
+        """
         missing = []
         try:
+            last_trading_date = self._get_last_trading_date()
+
             with self.db_config.get_session_context() as session:
                 scores_by_ticker = self._query_latest_scores(session, tickers)
                 prices_by_ticker = self._query_latest_prices(session, tickers)
@@ -111,6 +133,18 @@ class MomentumCacheService:
                 for ticker in tickers:
                     score_row = scores_by_ticker.get(ticker)
                     if score_row is None:
+                        missing.append(ticker)
+                        continue
+
+                    # Route to Tier 3 if the score predates the last completed session
+                    score_date = score_row.score_date
+                    if isinstance(score_date, datetime):
+                        score_date = score_date.date()
+                    if score_date < last_trading_date:
+                        logger.debug(
+                            "Stale DB score for %s (%s < %s) — routing to Tier 3",
+                            ticker, score_date, last_trading_date,
+                        )
                         missing.append(ticker)
                         continue
 
@@ -123,7 +157,9 @@ class MomentumCacheService:
                         "price_momentum": float(score_row.price_momentum or 0),
                         "technical_momentum": float(score_row.technical_momentum or 0),
                         "fundamental_momentum": float(
-                            score_row.fundamental_momentum or 0
+                            score_row.fundamental_momentum
+                            if score_row.fundamental_momentum is not None
+                            else 50.0
                         ),
                         "relative_momentum": float(score_row.relative_momentum or 0),
                         "current_price": float(prices_by_ticker[ticker])

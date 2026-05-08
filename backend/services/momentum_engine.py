@@ -153,6 +153,10 @@ class MomentumEngine:
         Checks the category field first (most reliable), then falls back to
         longName/shortName for ETFs whose category yfinance returns as None.
         """
+        # Only ETFs and mutual funds can be fixed income instruments — never equities
+        quote_type = (stock_info.get('quoteType') or '').upper()
+        if quote_type not in ('ETF', 'MUTUALFUND'):
+            return False
         for field in ('category', 'longName', 'shortName'):
             text = (stock_info.get(field) or '').lower()
             if text and any(kw in text for kw in self._FIXED_INCOME_KEYWORDS):
@@ -385,8 +389,10 @@ class MomentumEngine:
         technical_momentum = self.calculate_technical_momentum(hist_data)
         if is_fi:
             relative_momentum = self.calculate_relative_momentum(ticker, hist_data, benchmark='AGG')
+            fundamental_momentum = self.calculate_fixed_income_fundamental(stock_info or {}, hist_data)
         else:
             relative_momentum = self.calculate_relative_momentum(ticker, hist_data)
+            fundamental_momentum = self.calculate_fundamental_momentum(stock_info or {})
 
         # Calculate weighted composite score (fundamental component removed)
         composite_score = (
@@ -416,6 +422,7 @@ class MomentumEngine:
             'rating': rating,
             'price_momentum': round(price_momentum, 1),
             'technical_momentum': round(technical_momentum, 1),
+            'fundamental_momentum': round(fundamental_momentum, 1),
             'relative_momentum': round(relative_momentum, 1),
             'current_price': current_price,
             'scoring_model': 'fixed_income' if is_fi else 'equity',
@@ -437,6 +444,170 @@ class MomentumEngine:
                 )
 
         return result
+
+    def calculate_momentum_score_debug(self, ticker: str) -> Dict[str, Any]:
+        """Full scoring breakdown for a single ticker — bypasses in-memory cache."""
+        hist_data, stock_info = self.get_stock_data(ticker)
+
+        if hist_data is None or len(hist_data) < 50:
+            return {"error": "Insufficient data", "data_points": len(hist_data) if hist_data is not None else 0}
+
+        current_price = float(hist_data['Close'].iloc[-1])
+
+        # ---- price momentum internals ----
+        pm_debug: Dict[str, Any] = {}
+        if len(hist_data) >= 249:
+            ma_20  = float(hist_data['Close'].rolling(20).mean().iloc[-1])
+            ma_50  = float(hist_data['Close'].rolling(50).mean().iloc[-1])
+            ma_200 = float(hist_data['Close'].rolling(200).mean().iloc[-1])
+            direction_score = sum([7 if current_price > ma_20 else 0,
+                                   6 if current_price > ma_50 else 0,
+                                   7 if current_price > ma_200 else 0])
+
+            periods = {'1m': 21, '3m': 63, '6m': 126, '12m': 249}
+            returns = {p: round((current_price / float(hist_data['Close'].iloc[-d])) - 1, 4)
+                       for p, d in periods.items()}
+            w = {'1m': 0.4, '3m': 0.3, '6m': 0.2, '12m': 0.1}
+            weighted_return = sum(returns[p] * w[p] for p in returns)
+            magnitude_score = max(0.0, min(40.0, 20.0 + weighted_return * 80.0))
+
+            r1m_ann = (1.0 + returns['1m']) ** 12 - 1.0
+            r3m_ann = (1.0 + returns['3m']) **  4 - 1.0
+            return_accel = r1m_ann - r3m_ann
+            ma20_series = hist_data['Close'].rolling(20).mean()
+            ma20_prev = float(ma20_series.iloc[-11])
+            ma20_slope_ann = ((float(ma20_series.iloc[-1]) / ma20_prev) - 1.0) * 25.0 if ma20_prev > 0 else 0.0
+            combined_accel = 0.7 * return_accel + 0.3 * ma20_slope_ann
+            accel_score = max(0.0, min(40.0, 20.0 + combined_accel * 30.0))
+
+            pm_debug = {
+                "ma_20": round(ma_20, 2), "ma_50": round(ma_50, 2), "ma_200": round(ma_200, 2),
+                "price_vs_ma20": current_price > ma_20,
+                "price_vs_ma50": current_price > ma_50,
+                "price_vs_ma200": current_price > ma_200,
+                "direction_score": direction_score,
+                "period_returns": returns,
+                "weighted_return": round(weighted_return, 4),
+                "magnitude_score": round(magnitude_score, 2),
+                "r1m_annualised": round(r1m_ann, 4),
+                "r3m_annualised": round(r3m_ann, 4),
+                "return_acceleration": round(return_accel, 4),
+                "ma20_slope_ann": round(ma20_slope_ann, 4),
+                "combined_acceleration": round(combined_accel, 4),
+                "accel_score": round(accel_score, 2),
+                "price_momentum_total": round(min(100.0, direction_score + magnitude_score + accel_score), 2),
+            }
+
+        # ---- technical momentum internals ----
+        tm_debug: Dict[str, Any] = {}
+        if len(hist_data) >= 50:
+            delta = hist_data['Close'].diff()
+            gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+            rs = gain / loss
+            rsi_series = 100 - (100 / (1 + rs))
+            current_rsi = float(rsi_series.iloc[-1])
+
+            if 50 <= current_rsi <= 70:
+                rsi_score = 100.0
+            elif 30 <= current_rsi < 50:
+                rsi_score = (current_rsi - 30) * 2.5
+            elif 70 < current_rsi <= 85:
+                rsi_score = 100 - ((current_rsi - 70) * 2)
+            else:
+                rsi_score = 0.0
+
+            avg_volume = float(hist_data['Volume'].rolling(30).mean().iloc[-1])
+            current_volume = float(hist_data['Volume'].iloc[-1])
+            volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1.0
+            volume_score = min(100.0, volume_ratio * 50)
+
+            price_10d_ago = float(hist_data['Close'].iloc[-10])
+            roc = ((current_price / price_10d_ago) - 1) * 100
+            roc_score = min(100.0, max(0.0, roc * 10 + 50))
+
+            technical_total = (rsi_score * 0.4) + (volume_score * 0.3) + (roc_score * 0.3)
+            tm_debug = {
+                "rsi": round(current_rsi, 2),
+                "rsi_score": round(rsi_score, 2),
+                "avg_volume_30d": round(avg_volume, 0),
+                "current_volume": round(current_volume, 0),
+                "volume_ratio": round(volume_ratio, 3),
+                "volume_score": round(volume_score, 2),
+                "roc_10d_pct": round(roc, 3),
+                "roc_score": round(roc_score, 2),
+                "technical_momentum_total": round(min(100.0, max(0.0, technical_total)), 2),
+            }
+
+        # ---- relative momentum internals ----
+        rm_debug: Dict[str, Any] = {}
+        try:
+            benchmark_data, _ = self.get_stock_data('SPY', '1y')
+            if benchmark_data is not None and len(benchmark_data) >= 21 and len(hist_data) >= 21:
+                stock_ret = (float(hist_data['Close'].iloc[-1]) / float(hist_data['Close'].iloc[-21])) - 1
+                bench_ret = (float(benchmark_data['Close'].iloc[-1]) / float(benchmark_data['Close'].iloc[-21])) - 1
+                rel_perf = stock_ret - bench_ret
+                if rel_perf > 0.05:
+                    rm_score = 100.0
+                elif rel_perf > 0:
+                    rm_score = 50 + rel_perf * 1000
+                else:
+                    rm_score = max(0.0, 50 + rel_perf * 500)
+                rm_debug = {
+                    "stock_1m_return": round(stock_ret, 4),
+                    "spy_1m_return": round(bench_ret, 4),
+                    "relative_performance": round(rel_perf, 4),
+                    "relative_momentum_total": round(rm_score, 2),
+                    "threshold_for_100": 0.05,
+                }
+        except Exception:
+            rm_debug = {"error": "Could not compute relative momentum"}
+
+        # ---- fundamental internals ----
+        fm_debug: Dict[str, Any] = {}
+        is_fi = self._is_fixed_income(stock_info or {})
+        if not is_fi:
+            fwd_pe  = (stock_info or {}).get('forwardPE', 0) or 0
+            trail_pe = (stock_info or {}).get('trailingPE', 0) or 0
+            peg     = (stock_info or {}).get('pegRatio', 0) or 0
+            fm_debug = {
+                "forward_pe": fwd_pe, "trailing_pe": trail_pe, "peg_ratio": peg,
+                "note": "fundamental_momentum is computed but excluded from composite score",
+            }
+
+        # ---- cache state ----
+        cache_key = f"momentum_{ticker}"
+        cached = cache_key in self._cache
+        cache_age_s = None
+        if cached:
+            _, cache_time = self._cache[cache_key]
+            cache_age_s = round(time.time() - cache_time, 0)
+
+        # ---- composite ----
+        price_momentum = self.calculate_price_momentum(hist_data)
+        technical_momentum = self.calculate_technical_momentum(hist_data)
+        is_fi = self._is_fixed_income(stock_info or {})
+        relative_momentum = self.calculate_relative_momentum(ticker, hist_data, 'AGG' if is_fi else 'SPY')
+        composite = (price_momentum * self.weights['price_momentum']
+                     + technical_momentum * self.weights['technical_momentum']
+                     + relative_momentum  * self.weights['relative_momentum'])
+
+        return {
+            "ticker": ticker,
+            "current_price": round(current_price, 2),
+            "data_points": len(hist_data),
+            "scoring_model": "fixed_income" if is_fi else "equity",
+            "weights": self.weights,
+            "composite_score": round(composite, 2),
+            "price_momentum": round(price_momentum, 2),
+            "technical_momentum": round(technical_momentum, 2),
+            "relative_momentum": round(relative_momentum, 2),
+            "cache_state": {"cached": cached, "age_seconds": cache_age_s},
+            "price_momentum_breakdown": pm_debug,
+            "technical_momentum_breakdown": tm_debug,
+            "relative_momentum_breakdown": rm_debug,
+            "fundamental_inputs": fm_debug,
+        }
 
     def clear_cache(self) -> None:
         """Clear the momentum score cache"""

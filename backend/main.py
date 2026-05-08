@@ -314,6 +314,23 @@ async def get_momentum_score(request: Request, response: Response, ticker: str) 
         logger.error(f"Error calculating momentum for {ticker}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error calculating momentum: {str(e)}")
 
+@app.get("/momentum/{ticker}/debug")
+@limiter.limit(RateLimits.PUBLIC_API)
+async def get_momentum_debug(request: Request, response: Response, ticker: str) -> dict:
+    """Full scoring breakdown for a ticker — shows every intermediate value used to build the score."""
+    from .validators.validators import validate_ticker
+    from .exceptions import InvalidTickerError
+
+    try:
+        ticker = validate_ticker(ticker)
+        return momentum_engine.calculate_momentum_score_debug(ticker)
+    except (ValueError, InvalidTickerError) as e:
+        raise HTTPException(status_code=400, detail=f"Invalid ticker: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error in momentum debug for {ticker}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error calculating momentum debug: {str(e)}")
+
+
 @app.get("/portfolio/analysis")
 async def analyze_portfolio(portfolio_data: Optional[str] = None) -> PortfolioAnalysis:
     """Analyze portfolio holdings (uses default if none provided)"""

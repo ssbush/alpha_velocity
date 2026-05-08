@@ -43,9 +43,29 @@ class DailyScheduler:
         try:
             logger.info("Starting daily cache update at %s", datetime.now())
 
+            # Extend default tickers with any live holding tickers not already covered
+            tickers = set(self.portfolio_tickers)
+            if self.db_config:
+                try:
+                    from ..models.database import Holding, SecurityMaster, WatchlistTicker
+                    with self.db_config.get_session_context() as session:
+                        holding_rows = (
+                            session.query(SecurityMaster.ticker)
+                            .join(Holding, Holding.security_id == SecurityMaster.id)
+                            .distinct()
+                            .all()
+                        )
+                        tickers.update(r[0] for r in holding_rows)
+                except Exception as e:
+                    logger.warning("Could not load holding tickers for price update: %s", e)
+
+            ticker_list = sorted(tickers)
+            logger.info("Fetching closing prices for %d tickers (%d from holdings)",
+                        len(ticker_list), len(tickers) - len(self.portfolio_tickers))
+
             # Update cache with latest data
             success = self.cache_service.update_daily_cache(
-                tickers=self.portfolio_tickers,
+                tickers=ticker_list,
                 momentum_engine=self.momentum_engine
             )
 
@@ -112,8 +132,23 @@ class DailyScheduler:
         """Manually trigger cache update"""
         logger.info("Running manual cache update")
 
+        tickers = set(self.portfolio_tickers)
+        if self.db_config:
+            try:
+                from ..models.database import Holding, SecurityMaster
+                with self.db_config.get_session_context() as session:
+                    rows = (
+                        session.query(SecurityMaster.ticker)
+                        .join(Holding, Holding.security_id == SecurityMaster.id)
+                        .distinct()
+                        .all()
+                    )
+                    tickers.update(r[0] for r in rows)
+            except Exception as e:
+                logger.warning("Could not load holding tickers for manual update: %s", e)
+
         success = self.cache_service.update_daily_cache(
-            tickers=self.portfolio_tickers,
+            tickers=sorted(tickers),
             momentum_engine=self.momentum_engine,
             force_update=force
         )

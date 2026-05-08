@@ -144,6 +144,9 @@ app.add_middleware(DeprecationMiddleware)
 # 5. Request/response logging (detailed logging)
 app.add_middleware(LoggingMiddleware)
 
+from .middleware.timeout_middleware import RequestTimeoutMiddleware
+app.add_middleware(RequestTimeoutMiddleware, timeout=30)
+
 # Register exception handlers for standardized error responses
 from .error_handlers import register_exception_handlers
 register_exception_handlers(app)
@@ -464,18 +467,19 @@ async def get_watchlist(
         portfolio = DEFAULT_PORTFOLIO
         if user_id is not None and DATABASE_AVAILABLE:
             try:
-                service = get_user_portfolio_service()
-                user_portfolios = service.get_user_portfolios(user_id)
-                if user_portfolios:
-                    # Merge holdings across all user portfolios
-                    merged = {}
-                    for p in user_portfolios:
-                        holdings = service.get_portfolio_holdings(p.id, user_id)
-                        for h in holdings:
-                            ticker = h['ticker']
-                            merged[ticker] = merged.get(ticker, 0) + int(h['shares'])
-                    if merged:
-                        portfolio = merged
+                with db_config.get_session_context() as _wl_db:
+                    _wl_svc = UserPortfolioService(_wl_db)
+                    user_portfolios = _wl_svc.get_user_portfolios(user_id)
+                    if user_portfolios:
+                        # Merge holdings across all user portfolios
+                        merged = {}
+                        for p in user_portfolios:
+                            holdings = _wl_svc.get_portfolio_holdings(p.id, user_id)
+                            for h in holdings:
+                                ticker = h['ticker']
+                                merged[ticker] = merged.get(ticker, 0) + int(h['shares'])
+                        if merged:
+                            portfolio = merged
             except Exception as e:
                 logger.warning("Failed to load user holdings for watchlist, using default: %s", e)
         watchlist = portfolio_service.generate_watchlist(portfolio, min_score)
@@ -975,10 +979,11 @@ async def update_daily_cache(force: bool = False) -> dict:
         success = daily_scheduler.run_manual_update(force=force)
 
         if success:
+            cache_stats = daily_scheduler.cache_service.get_cache_stats()
             return {
                 "message": "Daily cache updated successfully",
                 "forced": force,
-                "tickers_cached": len(PORTFOLIO_TICKERS)
+                "tickers_cached": cache_stats.get("cached_tickers", len(PORTFOLIO_TICKERS))
             }
         else:
             raise HTTPException(status_code=500, detail="Daily cache update failed")
@@ -1335,16 +1340,18 @@ async def get_portfolio_drawdown_history(
 @app.post("/database/portfolio/{portfolio_id}/backfill-snapshots")
 async def backfill_portfolio_snapshots(
     portfolio_id: int,
+    force: bool = False,
     user_id: Optional[int] = Depends(get_optional_user_id)
 ) -> dict:
-    """Replay transactions × price_history to populate performance_snapshots."""
+    """Replay transactions × price_history to populate performance_snapshots.
+    Pass force=true to recompute all dates (required after retroactive cash transactions)."""
     try:
         from .database.config import db_config
         from .services.snapshot_service import SnapshotService
         written = await asyncio.to_thread(
-            SnapshotService(db_config).backfill_portfolio, portfolio_id
+            SnapshotService(db_config).backfill_portfolio, portfolio_id, force
         )
-        return {"portfolio_id": portfolio_id, "snapshots_written": written}
+        return {"portfolio_id": portfolio_id, "snapshots_written": written, "force": force}
     except HTTPException:
         raise
     except Exception as e:
@@ -1485,26 +1492,24 @@ from .auth import (
 from .services.user_service import UserService
 from .services.user_portfolio_service import UserPortfolioService
 from .database.config import get_database_session
+from sqlalchemy.orm import Session
 
-def get_user_service() -> UserService:
-    """Get user service with database session"""
+def get_user_service(db: Session = Depends(get_database_session)) -> UserService:
+    """FastAPI dependency: UserService with a properly managed DB session."""
     if not DATABASE_AVAILABLE:
         raise HTTPException(status_code=503, detail="Database not available")
-    db = next(get_database_session())
     return UserService(db)
 
-def get_user_portfolio_service() -> UserPortfolioService:
-    """Get user portfolio service with database session"""
+def get_user_portfolio_service(db: Session = Depends(get_database_session)) -> UserPortfolioService:
+    """FastAPI dependency: UserPortfolioService with a properly managed DB session."""
     if not DATABASE_AVAILABLE:
         raise HTTPException(status_code=503, detail="Database not available")
-    db = next(get_database_session())
     return UserPortfolioService(db)
 
 @app.post("/auth/register", response_model=dict)
 @limiter.limit(RateLimits.AUTHENTICATION)
-async def register_user(request: Request, response: Response, registration: UserRegistration) -> dict:
+async def register_user(request: Request, response: Response, registration: UserRegistration, service: UserService = Depends(get_user_service)) -> dict:
     """Register a new user account"""
-    service = get_user_service()
     try:
         user = service.create_user(registration)
         access_token = create_access_token(user.id, user.username)
@@ -1536,7 +1541,7 @@ async def register_user(request: Request, response: Response, registration: User
 
 @app.post("/auth/login", response_model=dict)
 @limiter.limit(RateLimits.AUTHENTICATION)
-async def login_user(request: Request, response: Response, credentials: UserCredentials) -> Any:
+async def login_user(request: Request, response: Response, credentials: UserCredentials, service: UserService = Depends(get_user_service)) -> Any:
     """Login with username/email and password"""
     # Check account lockout before hitting the database
     is_locked, seconds_remaining = login_attempt_tracker.is_locked(credentials.username)
@@ -1550,7 +1555,6 @@ async def login_user(request: Request, response: Response, credentials: UserCred
             }
         )
 
-    service = get_user_service()
     try:
         user = service.authenticate_user(credentials.username, credentials.password)
 
@@ -1633,9 +1637,8 @@ async def refresh_access_token(request: Request, response: Response, body: Refre
     }
 
 @app.get("/auth/profile", response_model=UserProfile)
-async def get_profile(user_data: TokenData = Depends(get_current_user)) -> UserProfile:
+async def get_profile(user_data: TokenData = Depends(get_current_user), service: UserService = Depends(get_user_service)) -> UserProfile:
     """Get current user profile"""
-    service = get_user_service()
     try:
         profile = service.get_user_profile(user_data.user_id)
         if not profile:
@@ -1647,9 +1650,8 @@ async def get_profile(user_data: TokenData = Depends(get_current_user)) -> UserP
         raise HTTPException(status_code=500, detail=f"Error fetching profile: {str(e)}")
 
 @app.get("/auth/stats")
-async def get_user_stats(user_id: int = Depends(get_current_user_id)) -> dict:
+async def get_user_stats(user_id: int = Depends(get_current_user_id), service: UserService = Depends(get_user_service)) -> dict:
     """Get user statistics"""
-    service = get_user_service()
     try:
         stats = service.get_user_stats(user_id)
         return stats
@@ -1661,9 +1663,8 @@ async def get_user_stats(user_id: int = Depends(get_current_user_id)) -> dict:
 # ========== User Portfolio Management Endpoints ==========
 
 @app.get("/user/portfolios")
-async def get_user_portfolios(user_id: int = Depends(get_current_user_id)) -> dict:
+async def get_user_portfolios(user_id: int = Depends(get_current_user_id), service: UserPortfolioService = Depends(get_user_portfolio_service)) -> dict:
     """Get all portfolios for the authenticated user"""
-    service = get_user_portfolio_service()
     try:
         portfolios = service.get_user_portfolios(user_id)
         return {
@@ -1684,9 +1685,8 @@ async def get_user_portfolios(user_id: int = Depends(get_current_user_id)) -> di
         raise HTTPException(status_code=500, detail=f"Error fetching portfolios: {str(e)}")
 
 @app.get("/user/portfolios/summaries")
-async def get_user_portfolios_with_summaries(user_id: int = Depends(get_current_user_id)) -> dict:
+async def get_user_portfolios_with_summaries(user_id: int = Depends(get_current_user_id), service: UserPortfolioService = Depends(get_user_portfolio_service)) -> dict:
     """Get all portfolios with brief summaries (value, positions, returns)"""
-    service = get_user_portfolio_service()
     try:
         summaries = await asyncio.to_thread(
             service.get_all_portfolios_with_summaries, user_id, price_service
@@ -1703,10 +1703,10 @@ async def get_user_portfolios_with_summaries(user_id: int = Depends(get_current_
 async def create_user_portfolio(
     name: str,
     description: Optional[str] = None,
-    user_id: int = Depends(get_current_user_id)
+    user_id: int = Depends(get_current_user_id),
+    service: UserPortfolioService = Depends(get_user_portfolio_service)
 ) -> dict:
     """Create a new portfolio"""
-    service = get_user_portfolio_service()
     try:
         portfolio = service.create_portfolio(user_id, name, description)
         return {
@@ -1728,10 +1728,10 @@ async def create_user_portfolio(
 @app.get("/user/portfolios/{portfolio_id}")
 async def get_portfolio_summary(
     portfolio_id: int,
-    user_id: int = Depends(get_current_user_id)
+    user_id: int = Depends(get_current_user_id),
+    service: UserPortfolioService = Depends(get_user_portfolio_service)
 ) -> dict:
     """Get portfolio summary with holdings"""
-    service = get_user_portfolio_service()
     try:
         summary = service.get_portfolio_summary(portfolio_id, user_id)
         if not summary:
@@ -1747,10 +1747,10 @@ async def update_user_portfolio(
     portfolio_id: int,
     name: Optional[str] = None,
     description: Optional[str] = None,
-    user_id: int = Depends(get_current_user_id)
+    user_id: int = Depends(get_current_user_id),
+    service: UserPortfolioService = Depends(get_user_portfolio_service)
 ) -> dict:
     """Update portfolio details"""
-    service = get_user_portfolio_service()
     try:
         portfolio = service.update_portfolio(portfolio_id, user_id, name=name, description=description)
         if not portfolio:
@@ -1773,10 +1773,10 @@ async def update_user_portfolio(
 @app.delete("/user/portfolios/{portfolio_id}")
 async def delete_user_portfolio(
     portfolio_id: int,
-    user_id: int = Depends(get_current_user_id)
+    user_id: int = Depends(get_current_user_id),
+    service: UserPortfolioService = Depends(get_user_portfolio_service)
 ) -> dict:
     """Delete a portfolio"""
-    service = get_user_portfolio_service()
     try:
         success = service.delete_portfolio(portfolio_id, user_id)
         if not success:
@@ -1790,10 +1790,10 @@ async def delete_user_portfolio(
 @app.get("/user/portfolios/{portfolio_id}/holdings")
 async def get_portfolio_holdings_endpoint(
     portfolio_id: int,
-    user_id: int = Depends(get_current_user_id)
+    user_id: int = Depends(get_current_user_id),
+    service: UserPortfolioService = Depends(get_user_portfolio_service)
 ) -> dict:
     """Get all holdings for a portfolio"""
-    service = get_user_portfolio_service()
     try:
         holdings = service.get_portfolio_holdings(portfolio_id, user_id)
         cash_balance = service.get_cash_balance(portfolio_id, user_id)
@@ -1810,10 +1810,10 @@ async def add_holding(
     shares: float,
     average_cost_basis: Optional[float] = None,
     category_name: Optional[str] = None,
-    user_id: int = Depends(get_current_user_id)
+    user_id: int = Depends(get_current_user_id),
+    service: UserPortfolioService = Depends(get_user_portfolio_service)
 ) -> dict:
     """Add or update a holding in the portfolio"""
-    service = get_user_portfolio_service()
     try:
         from decimal import Decimal
         holding = service.add_or_update_holding(
@@ -1842,10 +1842,10 @@ async def add_holding(
 async def remove_holding_endpoint(
     portfolio_id: int,
     ticker: str,
-    user_id: int = Depends(get_current_user_id)
+    user_id: int = Depends(get_current_user_id),
+    service: UserPortfolioService = Depends(get_user_portfolio_service)
 ) -> dict:
     """Remove a holding from the portfolio"""
-    service = get_user_portfolio_service()
     try:
         success = service.remove_holding(portfolio_id, user_id, ticker)
         if not success:
@@ -1860,10 +1860,10 @@ async def remove_holding_endpoint(
 async def get_portfolio_transactions_endpoint(
     portfolio_id: int,
     limit: int = 100,
-    user_id: int = Depends(get_current_user_id)
+    user_id: int = Depends(get_current_user_id),
+    service: UserPortfolioService = Depends(get_user_portfolio_service)
 ) -> dict:
     """Get transaction history for a portfolio"""
-    service = get_user_portfolio_service()
     try:
         transactions = service.get_portfolio_transactions(portfolio_id, user_id, limit)
         return {"transactions": transactions}
@@ -1883,10 +1883,10 @@ async def add_transaction_endpoint(
     fees: float = 0,
     notes: Optional[str] = None,
     dividend_amount: Optional[float] = None,
-    user_id: int = Depends(get_current_user_id)
+    user_id: int = Depends(get_current_user_id),
+    service: UserPortfolioService = Depends(get_user_portfolio_service)
 ) -> dict:
     """Add a transaction to the portfolio"""
-    service = get_user_portfolio_service()
     try:
         from decimal import Decimal
         from datetime import datetime
@@ -1960,10 +1960,10 @@ async def add_cash_transaction_endpoint(
     amount: float,
     transaction_date: str,
     notes: Optional[str] = None,
-    user_id: int = Depends(get_current_user_id)
+    user_id: int = Depends(get_current_user_id),
+    service: UserPortfolioService = Depends(get_user_portfolio_service)
 ) -> dict:
     """Record a cash deposit or withdrawal for a portfolio."""
-    service = get_user_portfolio_service()
     try:
         from decimal import Decimal
         from datetime import datetime
@@ -1997,10 +1997,10 @@ async def add_cash_transaction_endpoint(
 async def get_cash_transactions_endpoint(
     portfolio_id: int,
     limit: int = 100,
-    user_id: int = Depends(get_current_user_id)
+    user_id: int = Depends(get_current_user_id),
+    service: UserPortfolioService = Depends(get_user_portfolio_service)
 ) -> dict:
     """Get cash deposit/withdrawal history for a portfolio."""
-    service = get_user_portfolio_service()
     try:
         transactions = service.get_cash_transactions(portfolio_id, user_id, limit)
         cash_balance = service.get_cash_balance(portfolio_id, user_id)
@@ -2015,7 +2015,8 @@ async def get_cash_transactions_endpoint(
 async def upload_transactions_endpoint(
     portfolio_id: int,
     file: UploadFile = File(...),
-    user_id: int = Depends(get_current_user_id)
+    user_id: int = Depends(get_current_user_id),
+    service: UserPortfolioService = Depends(get_user_portfolio_service)
 ) -> dict:
     """Import transactions from a brokerage JSON or CSV export file."""
     import json
@@ -2066,7 +2067,6 @@ async def upload_transactions_endpoint(
                 "fees": parse_amount(fees_str) if fees_str.strip() else Decimal("0")}
 
     contents = await file.read()
-    service = get_user_portfolio_service()
     imported, skipped, errors = 0, 0, []
 
     if filename.endswith('.json'):
@@ -2168,10 +2168,10 @@ async def upload_transactions_endpoint(
 async def delete_transaction_endpoint(
     portfolio_id: int,
     transaction_id: int,
-    user_id: int = Depends(get_current_user_id)
+    user_id: int = Depends(get_current_user_id),
+    service: UserPortfolioService = Depends(get_user_portfolio_service)
 ) -> dict:
     """Delete a transaction from the portfolio"""
-    service = get_user_portfolio_service()
     try:
         success = service.delete_transaction(portfolio_id, user_id, transaction_id)
         if success:
@@ -2188,10 +2188,10 @@ async def delete_transaction_endpoint(
 @app.post("/user/portfolios/{portfolio_id}/backfill-splits")
 async def backfill_splits_endpoint(
     portfolio_id: int,
-    user_id: int = Depends(get_current_user_id)
+    user_id: int = Depends(get_current_user_id),
+    service: UserPortfolioService = Depends(get_user_portfolio_service)
 ) -> dict:
     """Detect and apply missing historical stock splits for all holdings in a portfolio."""
-    service = get_user_portfolio_service()
     try:
         result = service.backfill_splits(portfolio_id, user_id, price_service)
         return result
@@ -2208,9 +2208,9 @@ async def backfill_splits_endpoint(
 async def get_portfolio_categories_endpoint(
     portfolio_id: int,
     user_id: int = Depends(get_current_user_id),
+    svc: UserPortfolioService = Depends(get_user_portfolio_service),
 ) -> Any:
     """Get portfolio category analysis (ownership-verified)"""
-    svc = get_user_portfolio_service()
     portfolio = svc.get_portfolio(portfolio_id, user_id)
     if not portfolio:
         raise HTTPException(status_code=404, detail="Portfolio not found")
@@ -2226,9 +2226,9 @@ async def get_portfolio_categories_endpoint(
 async def get_portfolio_categories_detailed_endpoint(
     portfolio_id: int,
     user_id: int = Depends(get_current_user_id),
+    svc: UserPortfolioService = Depends(get_user_portfolio_service),
 ) -> Any:
     """Get portfolio holdings organized by categories (ownership-verified)"""
-    svc = get_user_portfolio_service()
     portfolio = svc.get_portfolio(portfolio_id, user_id)
     if not portfolio:
         raise HTTPException(status_code=404, detail="Portfolio not found")
@@ -2244,9 +2244,9 @@ async def get_portfolio_categories_detailed_endpoint(
 async def get_portfolio_category_targets_endpoint(
     portfolio_id: int,
     user_id: int = Depends(get_current_user_id),
+    svc: UserPortfolioService = Depends(get_user_portfolio_service),
 ) -> dict:
     """Get portfolio-specific category targets (ownership-verified)"""
-    svc = get_user_portfolio_service()
     portfolio = svc.get_portfolio(portfolio_id, user_id)
     if not portfolio:
         raise HTTPException(status_code=404, detail="Portfolio not found")
@@ -2299,9 +2299,9 @@ async def set_portfolio_category_target_endpoint(
     category_id: int,
     target_pct: float,
     user_id: int = Depends(get_current_user_id),
+    svc: UserPortfolioService = Depends(get_user_portfolio_service),
 ) -> dict:
     """Set or update a portfolio-specific category target (ownership-verified)"""
-    svc = get_user_portfolio_service()
     portfolio = svc.get_portfolio(portfolio_id, user_id)
     if not portfolio:
         raise HTTPException(status_code=404, detail="Portfolio not found")
@@ -2339,9 +2339,9 @@ async def set_portfolio_category_target_endpoint(
 async def reset_portfolio_targets_endpoint(
     portfolio_id: int,
     user_id: int = Depends(get_current_user_id),
+    svc: UserPortfolioService = Depends(get_user_portfolio_service),
 ) -> dict:
     """Reset portfolio to use global category defaults (ownership-verified)"""
-    svc = get_user_portfolio_service()
     portfolio = svc.get_portfolio(portfolio_id, user_id)
     if not portfolio:
         raise HTTPException(status_code=404, detail="Portfolio not found")

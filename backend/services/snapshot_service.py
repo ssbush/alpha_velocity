@@ -35,11 +35,13 @@ class SnapshotService:
     # Public API
     # ------------------------------------------------------------------
 
-    def backfill_portfolio(self, portfolio_id: int) -> int:
+    def backfill_portfolio(self, portfolio_id: int, force: bool = False) -> int:
         """
         Populate performance_snapshots for every date in price_history that
         has data for this portfolio's securities.  Skips dates that already
-        have a snapshot.  Returns the number of new snapshots written.
+        have a snapshot unless force=True (which recomputes all dates, needed
+        when cash transactions are added retroactively).  Returns the number
+        of snapshots written.
         """
         from ..models.database import (
             Transaction, CashTransaction, PriceHistory, SecurityMaster,
@@ -89,12 +91,19 @@ class SnapshotService:
                 logger.info("No price history found for portfolio %d", portfolio_id)
                 return 0
 
-            # Existing snapshot dates — skip these
-            existing = {
-                r[0] for r in session.query(PerformanceSnapshot.snapshot_date)
-                .filter(PerformanceSnapshot.portfolio_id == portfolio_id)
-                .all()
-            }
+            # Existing snapshot dates — skip these unless force=True
+            if force:
+                session.query(PerformanceSnapshot).filter(
+                    PerformanceSnapshot.portfolio_id == portfolio_id
+                ).delete(synchronize_session=False)
+                session.flush()
+                existing = set()
+            else:
+                existing = {
+                    r[0] for r in session.query(PerformanceSnapshot.snapshot_date)
+                    .filter(PerformanceSnapshot.portfolio_id == portfolio_id)
+                    .all()
+                }
 
             # Bulk-load all price history for relevant securities to avoid N+1
             all_prices = (
@@ -132,14 +141,23 @@ class SnapshotService:
                 if total_value <= 0:
                     continue  # no priced positions on this date
 
-                session.merge(PerformanceSnapshot(
-                    portfolio_id=portfolio_id,
-                    snapshot_date=snap_date,
-                    total_value=round(total_value, 2),
-                    total_cost_basis=round(total_cost, 2),
-                    unrealized_gain_loss=round(total_value - total_cost, 2),
-                    number_of_positions=n_positions,
-                ))
+                snap = session.query(PerformanceSnapshot).filter_by(
+                    portfolio_id=portfolio_id, snapshot_date=snap_date,
+                ).first()
+                if snap:
+                    snap.total_value = round(total_value, 2)
+                    snap.total_cost_basis = round(total_cost, 2)
+                    snap.unrealized_gain_loss = round(total_value - total_cost, 2)
+                    snap.number_of_positions = n_positions
+                else:
+                    session.add(PerformanceSnapshot(
+                        portfolio_id=portfolio_id,
+                        snapshot_date=snap_date,
+                        total_value=round(total_value, 2),
+                        total_cost_basis=round(total_cost, 2),
+                        unrealized_gain_loss=round(total_value - total_cost, 2),
+                        number_of_positions=n_positions,
+                    ))
                 written += 1
 
             session.commit()
@@ -198,14 +216,23 @@ class SnapshotService:
             if total_value <= 0:
                 return False
 
-            session.merge(PerformanceSnapshot(
-                portfolio_id=portfolio_id,
-                snapshot_date=snap_date,
-                total_value=round(total_value, 2),
-                total_cost_basis=round(total_cost, 2),
-                unrealized_gain_loss=round(total_value - total_cost, 2),
-                number_of_positions=n_positions,
-            ))
+            snap = session.query(PerformanceSnapshot).filter_by(
+                portfolio_id=portfolio_id, snapshot_date=snap_date,
+            ).first()
+            if snap:
+                snap.total_value = round(total_value, 2)
+                snap.total_cost_basis = round(total_cost, 2)
+                snap.unrealized_gain_loss = round(total_value - total_cost, 2)
+                snap.number_of_positions = n_positions
+            else:
+                session.add(PerformanceSnapshot(
+                    portfolio_id=portfolio_id,
+                    snapshot_date=snap_date,
+                    total_value=round(total_value, 2),
+                    total_cost_basis=round(total_cost, 2),
+                    unrealized_gain_loss=round(total_value - total_cost, 2),
+                    number_of_positions=n_positions,
+                ))
             session.commit()
             return True
 
@@ -379,24 +406,24 @@ class SnapshotService:
             snap_values = [float(r.total_value) for r in snap_rows]
             first_date = snap_dates[0]
 
-            # Net cash flows per date: BUY = money in (+), SELL = money out (-)
-            # total_amount for BUY is positive cost; SELL is proceeds received
-            txn_rows = (
-                session.query(Transaction.transaction_date, Transaction.transaction_type,
-                              Transaction.total_amount)
+            # External cash flows only (DEPOSIT/WITHDRAWAL) — BUY/SELL are
+            # internal stock↔cash reallocations already captured in snapshot values.
+            from ..models.database import CashTransaction
+            ctxn_rows = (
+                session.query(CashTransaction.transaction_date, CashTransaction.transaction_type,
+                              CashTransaction.amount)
                 .filter(
-                    Transaction.portfolio_id == portfolio_id,
-                    Transaction.transaction_date >= cutoff,
-                    Transaction.transaction_type.in_(['BUY', 'SELL', 'REINVEST']),
+                    CashTransaction.portfolio_id == portfolio_id,
+                    CashTransaction.transaction_date >= cutoff,
                 )
                 .all()
             )
             cash_flows: dict = defaultdict(float)
-            for txn in txn_rows:
-                if txn.transaction_type in ('BUY', 'REINVEST'):
-                    cash_flows[txn.transaction_date] += float(txn.total_amount)
-                elif txn.transaction_type == 'SELL':
-                    cash_flows[txn.transaction_date] -= float(txn.total_amount)
+            for ctxn in ctxn_rows:
+                if ctxn.transaction_type == 'DEPOSIT':
+                    cash_flows[ctxn.transaction_date] += float(ctxn.amount)
+                elif ctxn.transaction_type == 'WITHDRAWAL':
+                    cash_flows[ctxn.transaction_date] -= float(ctxn.amount)
 
             # Compute TWR: chain sub-period returns
             cumulative = 1.0
@@ -414,7 +441,36 @@ class SnapshotService:
                 cumulative *= (1.0 + period_return)
                 twr_series.append(round((cumulative - 1.0) * 100, 4))
 
-            # Benchmark simple cumulative returns
+            # Portfolio Calmar ratio
+            actual_days = (snap_dates[-1] - snap_dates[0]).days
+            def _annualized(cumulative_pct: float, n_days: int) -> Optional[float]:
+                if n_days <= 0:
+                    return None
+                return round(((1 + cumulative_pct / 100) ** (365 / n_days) - 1) * 100, 4)
+
+            def _max_drawdown(values: List[float]) -> float:
+                peak = values[0]
+                worst = 0.0
+                for v in values:
+                    if v > peak:
+                        peak = v
+                    dd = (v / peak - 1.0) * 100
+                    if dd < worst:
+                        worst = dd
+                return round(worst, 4)
+
+            def _calmar(ann_return: Optional[float], max_dd: float) -> Optional[float]:
+                if ann_return is None or max_dd >= 0:
+                    return None
+                return round(ann_return / abs(max_dd), 4)
+
+            port_ann = _annualized(twr_series[-1], actual_days)
+            port_max_dd = _max_drawdown(snap_values)
+            calmar_data: Dict[str, Optional[float]] = {
+                "portfolio": _calmar(port_ann, port_max_dd)
+            }
+
+            # Benchmark simple cumulative returns + Calmar
             benchmark_data: Dict[str, List[Optional[float]]] = {}
             for ticker in benchmarks:
                 sm = session.query(SecurityMaster).filter(
@@ -447,10 +503,12 @@ class SnapshotService:
                 bench_idx = 0
                 last_price = None
                 bench_returns = []
+                bench_prices_at_snap: List[Optional[float]] = []
                 for snap_date in snap_dates:
                     while bench_idx < len(sorted_bench) and sorted_bench[bench_idx][0] <= snap_date:
                         last_price = sorted_bench[bench_idx][1]
                         bench_idx += 1
+                    bench_prices_at_snap.append(last_price)
                     if last_price is not None:
                         bench_returns.append(round((last_price / bench_start - 1.0) * 100, 4))
                     else:
@@ -458,10 +516,18 @@ class SnapshotService:
 
                 benchmark_data[ticker] = bench_returns
 
+                # Calmar for this benchmark
+                filled = [p for p in bench_prices_at_snap if p is not None]
+                if filled:
+                    b_ann = _annualized((filled[-1] / bench_start - 1.0) * 100, actual_days)
+                    b_max_dd = _max_drawdown(filled)
+                    calmar_data[ticker] = _calmar(b_ann, b_max_dd)
+
         return {
             "labels": labels,
             "portfolio_twr": twr_series,
             "benchmarks": benchmark_data,
+            "calmar": calmar_data,
         }
 
     def get_drawdown_history(

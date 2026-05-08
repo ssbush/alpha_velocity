@@ -139,17 +139,22 @@ class DailyCacheService:
                 )
 
                 if stock_data is not None:
+                    # Normalize MultiIndex columns (newer yfinance wraps single-ticker
+                    # downloads in a (field, ticker) MultiIndex)
+                    if isinstance(stock_data.columns, pd.MultiIndex):
+                        stock_data = stock_data.xs(ticker, level=1, axis=1)
+
                     # Get the closing price for the target date or most recent
                     target_date = pd.Timestamp(date)
 
                     # Find the closest trading day to our target date
                     if target_date in stock_data.index:
-                        close_price = stock_data.loc[target_date]['Close']
+                        close_price = stock_data.loc[target_date, 'Close']
                     else:
                         # Get the most recent price before or on the target date
                         valid_dates = stock_data.index[stock_data.index <= target_date]
                         if not valid_dates.empty:
-                            close_price = stock_data.loc[valid_dates[-1]]['Close']
+                            close_price = stock_data.loc[valid_dates[-1], 'Close']
                         else:
                             close_price = stock_data['Close'].iloc[-1]
 

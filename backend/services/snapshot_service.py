@@ -22,6 +22,8 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Dict, List, Optional, Tuple
 
+from ..config.portfolio_config import BENCHMARK_TICKERS
+
 logger = logging.getLogger(__name__)
 
 
@@ -277,7 +279,7 @@ class SnapshotService:
         from datetime import date, timedelta
 
         if benchmarks is None:
-            benchmarks = ['SPY', 'QQQ', 'MTUM', 'AIQ']
+            benchmarks = BENCHMARK_TICKERS
 
         cutoff = date.today() - timedelta(days=days)
 
@@ -380,7 +382,7 @@ class SnapshotService:
         from collections import defaultdict
 
         if benchmarks is None:
-            benchmarks = ['SPY', 'QQQ', 'MTUM', 'AIQ']
+            benchmarks = BENCHMARK_TICKERS
 
         cutoff = date.today() - timedelta(days=days)
 
@@ -547,7 +549,7 @@ class SnapshotService:
         from datetime import date, timedelta
 
         if benchmarks is None:
-            benchmarks = ['SPY', 'QQQ', 'MTUM', 'AIQ']
+            benchmarks = BENCHMARK_TICKERS
 
         cutoff = date.today() - timedelta(days=days)
 

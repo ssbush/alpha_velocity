@@ -175,7 +175,7 @@ app.include_router(api_router, prefix="/api")
 
 logger.info("API versioning enabled - v1 endpoints available at /api/v1/")
 
-from .config.portfolio_config import DEFAULT_PORTFOLIO
+from .config.portfolio_config import DEFAULT_PORTFOLIO, BENCHMARK_TICKERS
 
 # Initialize services
 price_service = PriceService()
@@ -222,8 +222,9 @@ except Exception as e:
 
 # Get all portfolio tickers for caching
 def get_all_portfolio_tickers() -> List[str]:
-    """Get all unique tickers from default portfolio and categories"""
+    """Get all unique tickers from default portfolio, categories, and benchmark overlays"""
     all_tickers = set(DEFAULT_PORTFOLIO.keys())
+    all_tickers.update(BENCHMARK_TICKERS)
 
     # Add category tickers
     try:

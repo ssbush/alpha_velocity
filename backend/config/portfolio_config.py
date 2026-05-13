@@ -66,6 +66,10 @@ PORTFOLIO_CATEGORIES = {
     }
 }
 
+# Benchmark tickers used for chart overlays in snapshot/performance views.
+# Must be kept in price_history — included in daily cache updates.
+BENCHMARK_TICKERS = ['SPY', 'QQQ', 'MTUM', 'AIQ']
+
 # Map API sort field names to DataFrame column names
 SORT_COLUMN_MAP = {
     'momentum_score': 'Momentum_Score',
